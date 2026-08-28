@@ -22,51 +22,17 @@ jobs:
           }
           Write-Host "✅ ZeroTier 安裝完成！"
 
-      - name: Step 2 - 載入 ZeroTier 路徑至 GITHUB_PATH
-        shell: pwsh
-        run: |
-          $knownDir = "C:\Program Files (x86)\ZeroTier\One"
-          $exePath = Join-Path $knownDir "zerotier-cli.exe"
-
-          if (Test-Path $exePath) {
-            Write-Host "🎉 成功確認 ZeroTier 執行檔：$exePath"
-            Write-Host "📌 寫入 GITHUB_PATH：$knownDir"
-            Add-Content -Path $env:GITHUB_PATH -Value $knownDir
-          } else {
-            Write-Error "❌ 在 $knownDir 找不到 zerotier-cli.exe"
-            exit 1
-          }
-          
-      - name: 加入 ZeroTier 網路
+      - name: Step 2 - 加入 ZeroTier 網路
         shell: pwsh
         env:
           ZT_NETWORK_ID: ${{ secrets.ZEROTIER_NETWORK_ID }}
         run: |
-          
-          # 自動尋找 zerotier-cli 執行檔（雙重備援）
-          $ztCmd = Get-Command zerotier-cli -ErrorAction SilentlyContinue
-          if ($ztCmd) {
-            $ztCli = $ztCmd.Source
-          } else {
-            # 如果 PATH 依然未即時套用，手動檢查預設路徑
-            $fallbackPaths = @(
-              "C:\Program Files\ZeroTier\One\zerotier-cli.exe",
-              "C:\Program Files (x86)\ZeroTier\One\zerotier-cli.exe"
-            )
-            $ztCli = $fallbackPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
-          }
+          $ztExe = "C:\ProgramData\ZeroTier\One\zerotier-one_x64.exe"
 
-          if (-not $ztCli) {
-            Write-Error "❌ 系統中找不到 zerotier-cli 指令或檔案"
-            exit 1
-          }
-
-          Write-Host "✅ 自動偵測到 ZeroTier CLI 路徑：$ztCli"
-
-          Write-Host "✅ 檢查 ZeroTier 服務是否啟動..."
+          Write-Host "✅ 檢查 ZeroTier 服務狀態..."
           $serviceStarted = $false
           for ($i = 1; $i -le 15; $i++) {
-            $info = & $ztCli info 2>$null
+            $info = & $ztExe -q info 2>$null
             if ($LASTEXITCODE -eq 0) {
               Write-Host "✅ ZeroTier 服務已啟動，狀態：$info"
               $serviceStarted = $true
@@ -82,7 +48,7 @@ jobs:
           }
 
           Write-Host "🚀 嘗試加入 ZeroTier 網路：$env:ZT_NETWORK_ID"
-          & $ztCli join $env:ZT_NETWORK_ID
+          & $ztExe -q join $env:ZT_NETWORK_ID
           if ($LASTEXITCODE -ne 0) {
             Write-Error "❌ 加入 ZeroTier 網路失敗"
             exit 1
@@ -91,8 +57,8 @@ jobs:
           Write-Host "🕓 等待 ZeroTier 成功連線..."
           $joined = $false
           for ($i = 1; $i -le 20; $i++) {
-            $netInfo = & $ztCli listnetworks | Select-String -Pattern $env:ZT_NETWORK_ID
-            Write-Host "網路狀態詳細資訊：$netInfo"
+            $netInfo = & $ztExe -q listnetworks | Select-String -Pattern $env:ZT_NETWORK_ID
+            Write-Host "網路狀態：$netInfo"
           
             if ($netInfo -match 'OK') {
               Write-Host "✅ 已成功加入 ZeroTier 網路！"
@@ -103,7 +69,7 @@ jobs:
           }
 
           if (-not $joined) {
-            Write-Error "❌ 等待逾時，未能成功獲得 OK 狀態"
+            Write-Error "❌ 連線逾時，未能取得 OK 狀態"
             exit 1
           }
           
