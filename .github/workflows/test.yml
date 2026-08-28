@@ -29,11 +29,6 @@ jobs:
               Write-Error "❌ Failed to install ZeroTier"
               exit 1
           }
-      - name: 加入 ZeroTier 網路
-        shell: pwsh
-        env:
-          ZT_NETWORK_ID: ${{ secrets.ZEROTIER_NETWORK_ID }}
-        run: |
           # 掃描並印出實際安裝路徑
           $possibleDirs = @(
             "C:\Program Files (x86)\ZeroTier\One",
@@ -50,6 +45,14 @@ jobs:
               break
             }
           }
+
+          
+      - name: 加入 ZeroTier 網路
+        shell: pwsh
+        env:
+          ZT_NETWORK_ID: ${{ secrets.ZEROTIER_NETWORK_ID }}
+        run: |
+          
           # 自動尋找 zerotier-cli 執行檔（雙重備援）
           $ztCmd = Get-Command zerotier-cli -ErrorAction SilentlyContinue
           if ($ztCmd) {
