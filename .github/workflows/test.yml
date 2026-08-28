@@ -39,26 +39,46 @@ jobs:
       - name: Step 2 - 搜尋安裝路徑並設定環境變數
         shell: pwsh
         run: |
+          $exeName = "zerotier-cli.exe"
           $possibleDirs = @(
             "C:\Program Files (x86)\ZeroTier\One",
-            "C:\Program Files\ZeroTier\One"
+            "C:\Program Files\ZeroTier\One",
+            "C:\ProgramData\ZeroTier\One"
           )
 
-          $installedDir = $null
-          foreach ($dir in $possibleDirs) {
-            $exePath = Join-Path $dir "zerotier-cli.exe"
-            Write-Host "🔍 檢查安裝路徑：$exePath"
-            if (Test-Path $exePath) {
-              $installedDir = $dir
-              Write-Host "🎉 成功找到 ZeroTier 執行檔！完整路徑為：$exePath"
-              break
+          $targetExePath = $null
+
+          # 優先方案：重試檢查預設目錄 (最多等 30 秒)
+          for ($i = 1; $i -le 10; $i++) {
+            Write-Host "⏳ 檢查預設安裝路徑 (第 $i/10 次嘗試)..."
+            foreach ($dir in $possibleDirs) {
+              $checkPath = Join-Path $dir $exeName
+              if (Test-Path $checkPath) {
+                $targetExePath = $checkPath
+                break
+              }
             }
+
+            if ($targetExePath) { break }
+            Start-Sleep -Seconds 3
           }
 
-          if (-not $installedDir) {
-            Write-Error "❌ 在預設目錄中找不到 zerotier-cli.exe"
+          # 備用方案：若預設目錄找不到，對 C 磁碟進行全域搜尋
+          if (-not $targetExePath) {
+            Write-Host "⚠️ 預設目錄未找到，啟動 C 磁碟全域搜尋 $exeName..."
+            $foundFile = Get-ChildItem -Path "C:\" -Filter $exeName -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($foundFile) {
+              $targetExePath = $foundFile.FullName
+            }
+          }
+  
+          if (-not $targetExePath) {
+            Write-Error "❌ 全域搜尋完成，仍無法找到 $exeName，請確認 MSI 是否安裝成功。"
             exit 1
           }
+
+          $installedDir = Split-Path -Path $targetExePath -Parent
+          Write-Host "🎉 成功定位 ZeroTier 執行檔！完整路徑：$targetExePath"
           
       - name: 加入 ZeroTier 網路
         shell: pwsh
