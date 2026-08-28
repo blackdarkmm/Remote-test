@@ -11,7 +11,7 @@ jobs:
 
     steps:
       - name: 安裝 ZeroTier CLI
-        shell: powershell
+        shell: pwsh
         run: |
           $success = $false
           for ($i = 1; $i -le 5; $i++) {
