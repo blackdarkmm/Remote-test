@@ -10,26 +10,35 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: 安裝 ZeroTier CLI
+      - name: Step 1 - 下載並安裝 ZeroTier MSI
         shell: pwsh
         run: |
-          $success = $false
-          for ($i = 1; $i -le 5; $i++) {
-              Write-Host "Attempt $i to install ZeroTier..."
-              winget install --id ZeroTier.ZeroTierOne -e --source winget --accept-package-agreements --accept-source-agreements
-              if ($LASTEXITCODE -eq 0) {
-                  $success = $true
-                  break
-              }
-              Write-Host "Retrying in 5 seconds..."
-              Start-Sleep -Seconds 5
-          }
+          $msiUrl = "https://download.zerotier.com/dist/ZeroTier%20One.msi"
+          $msiPath = "$env:TEMP\ZeroTierOne.msi"
 
-          if (-not $success) {
-              Write-Error "❌ Failed to install ZeroTier"
-              exit 1
+          Write-Host "📥 開始下載 ZeroTier 官方 MSI 安裝檔..."
+          Write-Host "📍 MSI 下載目標路徑：$msiPath"
+          Invoke-WebRequest -Uri $msiUrl -OutFile $msiPath -UseBasicParsing
+
+          if (-not (Test-Path $msiPath)) {
+            Write-Error "❌ 下載 MSI 安裝檔失敗"
+            exit 1
           }
-          # 掃描並印出實際安裝路徑
+          $fileSizeMB = [math]::Round(((Get-Item $msiPath).Length / 1MB), 2)
+          Write-Host "✅ 安裝檔下載成功！大小：$fileSizeMB MB"
+
+          Write-Host "⚙️ 靜默安裝 ZeroTier 中..."
+          $proc = Start-Process msiexec.exe -ArgumentList "/i `"$msiPath`" /quiet /qn /norestart" -Wait -PassThru
+
+          if ($proc.ExitCode -ne 0) {
+            Write-Error "❌ MSI 安裝失敗，Exit Code: $($proc.ExitCode)"
+            exit 1
+           }
+          Write-Host "✅ ZeroTier MSI 安裝程序執行完成"
+
+      - name: Step 2 - 搜尋安裝路徑並設定環境變數
+        shell: pwsh
+        run: |
           $possibleDirs = @(
             "C:\Program Files (x86)\ZeroTier\One",
             "C:\Program Files\ZeroTier\One"
@@ -46,6 +55,10 @@ jobs:
             }
           }
 
+          if (-not $installedDir) {
+            Write-Error "❌ 在預設目錄中找不到 zerotier-cli.exe"
+            exit 1
+          }
           
       - name: 加入 ZeroTier 網路
         shell: pwsh
