@@ -37,7 +37,8 @@ jobs:
           $ztCli = 'C:\Program Files (x86)\ZeroTier\One\zerotier-cli.exe'
 
           if (Test-Path 'C:\Program Files (x86)\ZeroTier\One') {
-              $env:PATH += ';C:\Program Files (x86)\ZeroTier\One'
+              "C:\Program Files\ZeroTier\One\zerotier-cli.exe",
+              "C:\Program Files (x86)\ZeroTier\One\zerotier-cli.exe"
           }
 
           Write-Host "Checking ZeroTier service status..."
