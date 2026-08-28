@@ -22,6 +22,19 @@ jobs:
           $Password = ConvertTo-SecureString $env:RDP_PWD -AsPlainText -Force
           Set-LocalUser -Name "runneradmin" -Password $Password
           Write-Host "✅ 已成功設定 runneradmin 的登入密碼！"
+
+      - name: 開啟RDP
+        shell: pwsh
+        env:
+          RDP_PORT: ${{ secrets.RDP_PORT }}
+        run: |
+          # 1. 修改機碼，開啟 RDP 功能
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          # 2. 開放 Windows 防火牆的 RDP 連接埠 (3389)
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          # 3. 關閉系統自動睡眠（確保掛機不休眠）
+          powercfg /change standby-timeout-ac 0
+
     
       - name: Step 1 - 使用 Chocolatey 安裝 ZeroTier
         shell: pwsh
