@@ -34,15 +34,24 @@ jobs:
         env:
           ZT_NETWORK_ID: ${{ secrets.ZEROTIER_NETWORK_ID }}
         run: |
-         # 動態尋找系統中的 zerotier-cli 指令路徑
+          # 自動尋找 zerotier-cli 執行檔（雙重備援）
           $ztCmd = Get-Command zerotier-cli -ErrorAction SilentlyContinue
+          if ($ztCmd) {
+            $ztCli = $ztCmd.Source
+          } else {
+            # 如果 PATH 依然未即時套用，手動檢查預設路徑
+            $fallbackPaths = @(
+              "C:\Program Files\ZeroTier\One\zerotier-cli.exe",
+              "C:\Program Files (x86)\ZeroTier\One\zerotier-cli.exe"
+            )
+            $ztCli = $fallbackPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
 
-          if (-not $ztCmd) {
-            Write-Error "❌ 系統 PATH 中找不到 zerotier-cli 指令"
+          if (-not $ztCli) {
+            Write-Error "❌ 系統中找不到 zerotier-cli 指令或檔案"
             exit 1
           }
 
-          $ztCli = $ztCmd.Source
           Write-Host "✅ 自動偵測到 ZeroTier CLI 路徑：$ztCli"
 
           Write-Host "✅ 檢查 ZeroTier 服務是否啟動..."
@@ -54,8 +63,8 @@ jobs:
               $serviceStarted = $true
               break
             }
-          Write-Host "⏳ 等待 ZeroTier 服務啟動... ($i/15)"
-          Start-Sleep -Seconds 3
+            Write-Host "⏳ 等待 ZeroTier 服務啟動... ($i/15)"
+            Start-Sleep -Seconds 3
           }
 
           if (-not $serviceStarted) {
