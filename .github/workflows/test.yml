@@ -35,6 +35,21 @@ jobs:
           # 3. 關閉系統自動睡眠（確保掛機不休眠）
           powercfg /change standby-timeout-ac 0
 
+      - name: 切換系統語言為繁體中文 (zh-TW)
+        shell: pwsh
+        run: |
+          Write-Host "🌐 開始安裝並切換繁體中文語言包 (zh-TW)..."
+        
+          # 1. 安裝繁體中文語言包
+          Install-Language -Language "zh-TW" -CopyToSettings -ErrorAction SilentlyContinue
+
+          # 2. 設定系統區域與語言偏好
+          Set-WinUILanguageOverride -Language "zh-TW"
+          Set-Culture -CultureInfo "zh-TW"
+          Set-WinSystemLocale -SystemLocale "zh-TW"
+          Set-WinHomeLocation -GeoId 237 # 237 為台灣的 GeoID
+
+          Write-Host "✅ 繁體中文語言設定已完成！"
     
       - name: Step 1 - 使用 Chocolatey 安裝 ZeroTier
         shell: pwsh
