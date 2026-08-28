@@ -85,24 +85,9 @@ jobs:
           }
           Write-Host "=========== END identity.secret ==========="
 
-      - name: 維持虛擬機運行 1 小時
+      - name: Step 3 - 待機 30 分鐘
         shell: pwsh
         run: |
-          $totalMinutes = 60
-          $intervalMinutes = 5
-          $totalIterations = $totalMinutes / $intervalMinutes
-          $ztCli = "C:\Program Files (x86)\ZeroTier\One\zerotier-cli.exe"
-
-          Write-Host "🚀 開始維持虛擬機運行 1 小時..."
-
-          for ($i = 1; $i -le $totalIterations; $i++) {
-              $currentTime = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-              $status = & $ztCli info 2>$null
-            
-              # 每 5 分鐘印出一次狀態以維持連線，並防止 GitHub Actions 無輸出超時 (No Output Timeout)
-              Write-Host "[$currentTime] ($($i * $intervalMinutes)/$totalMinutes 分鐘) 虛擬機運作中... ZeroTier 狀態: $status"
-            
-              Start-Sleep -Seconds ($intervalMinutes * 60)
-          }
-
-          Write-Host "✅ 1 小時運行任務結束，準備關閉虛擬機。"
+          Write-Host "🚀 開始待機 30 分鐘..."
+          Start-Sleep -Seconds 1800
+          Write-Host "✅ 30 分鐘待機結束，準備關閉虛擬機。"
