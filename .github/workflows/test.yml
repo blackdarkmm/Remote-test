@@ -30,70 +30,65 @@ jobs:
               exit 1
           }
       - name: 加入 ZeroTier 網路
-        shell: powershell
+        shell: pwsh
         env:
           ZT_NETWORK_ID: ${{ secrets.ZEROTIER_NETWORK_ID }}
         run: |
-          $possiblePaths = @(
-            "C:\Program Files\ZeroTier\One\zerotier-cli.exe",
-            "C:\Program Files (x86)\ZeroTier\One\zerotier-cli.exe"
-          )
+         # 動態尋找系統中的 zerotier-cli 指令路徑
+          $ztCmd = Get-Command zerotier-cli -ErrorAction SilentlyContinue
 
-          $ztCli = $null
-          foreach ($path in $possiblePaths) {
-              if (Test-Path $path) {
-                  $ztCli = $path
-                  break
-              }
+          if (-not $ztCmd) {
+            Write-Error "❌ 系統 PATH 中找不到 zerotier-cli 指令"
+            exit 1
           }
 
-          if (-not $ztCli) {
-              Write-Error "zerotier-cli.exe not found in standard installation directories."
-              exit 1
-          }
-          Write-Host "Checking ZeroTier service status..."
+          $ztCli = $ztCmd.Source
+          Write-Host "✅ 自動偵測到 ZeroTier CLI 路徑：$ztCli"
+
+          Write-Host "✅ 檢查 ZeroTier 服務是否啟動..."
           $serviceStarted = $false
-          for ($i = 1; $i -le 10; $i++) {
+          for ($i = 1; $i -le 15; $i++) {
             $info = & $ztCli info 2>$null
             if ($LASTEXITCODE -eq 0) {
-                Write-Host "ZeroTier service is running."
-                $serviceStarted = $true
-                break
+              Write-Host "✅ ZeroTier 服務已啟動，狀態：$info"
+              $serviceStarted = $true
+              break
             }
-            Write-Host "Waiting for ZeroTier service to start... ($i/10)"
-            Start-Sleep -Seconds 2
+          Write-Host "⏳ 等待 ZeroTier 服務啟動... ($i/15)"
+          Start-Sleep -Seconds 3
           }
 
           if (-not $serviceStarted) {
-              Write-Error "ZeroTier service failed to start."
-              exit 1
+            Write-Error "❌ ZeroTier 服務未能成功啟動"
+            exit 1
           }
 
-          Write-Host "Joining ZeroTier network: $env:ZT_NETWORK_ID"
+          Write-Host "🚀 嘗試加入 ZeroTier 網路：$env:ZT_NETWORK_ID"
           & $ztCli join $env:ZT_NETWORK_ID
           if ($LASTEXITCODE -ne 0) {
-              Write-Error "Failed to join ZeroTier network."
-              exit 1
+            Write-Error "❌ 加入 ZeroTier 網路失敗"
+            exit 1
           }
 
-          Write-Host "Waiting for ZeroTier connection OK status..."
+          Write-Host "🕓 等待 ZeroTier 成功連線..."
           $joined = $false
           for ($i = 1; $i -le 20; $i++) {
-              $netInfo = & $ztCli listnetworks | Select-String -Pattern $env:ZT_NETWORK_ID
-              Write-Host "Network status: $netInfo"
-            
-              if ($netInfo -match 'OK') {
-                  Write-Host "Successfully joined ZeroTier network!"
-                  $joined = $true
-                  break
-              }
-              Start-Sleep -Seconds 3
+            $netInfo = & $ztCli listnetworks | Select-String -Pattern $env:ZT_NETWORK_ID
+            Write-Host "網路狀態詳細資訊：$netInfo"
+          
+            if ($netInfo -match 'OK') {
+              Write-Host "✅ 已成功加入 ZeroTier 網路！"
+              $joined = $true
+              break
+            }
+            Start-Sleep -Seconds 3
           }
 
           if (-not $joined) {
-              Write-Error "Timeout waiting for ZeroTier OK status."
-              exit 1
+            Write-Error "❌ 等待逾時，未能成功獲得 OK 狀態"
+            exit 1
           }
+          
       - name: 顯示 ZeroTier 身份檔案（只用一次）
         shell: powershell
         run: |
