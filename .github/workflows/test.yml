@@ -74,7 +74,7 @@ jobs:
           }
           
       - name: 顯示 ZeroTier 身份檔案（只用一次）
-        shell: powershell
+        shell: pwsh
         run: |
           $secretPath = "C:\ProgramData\ZeroTier\One\identity.secret"
           Write-Host "========== BEGIN identity.secret =========="
@@ -86,7 +86,7 @@ jobs:
           Write-Host "=========== END identity.secret ==========="
 
       - name: 維持虛擬機運行 1 小時
-        shell: powershell
+        shell: pwsh
         run: |
           $totalMinutes = 60
           $intervalMinutes = 5
