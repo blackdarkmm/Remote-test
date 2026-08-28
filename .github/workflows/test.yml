@@ -34,6 +34,22 @@ jobs:
         env:
           ZT_NETWORK_ID: ${{ secrets.ZEROTIER_NETWORK_ID }}
         run: |
+          # 掃描並印出實際安裝路徑
+          $possibleDirs = @(
+            "C:\Program Files (x86)\ZeroTier\One",
+            "C:\Program Files\ZeroTier\One"
+          )
+
+          $installedDir = $null
+          foreach ($dir in $possibleDirs) {
+            $exePath = Join-Path $dir "zerotier-cli.exe"
+            Write-Host "🔍 檢查安裝路徑：$exePath"
+            if (Test-Path $exePath) {
+              $installedDir = $dir
+              Write-Host "🎉 成功找到 ZeroTier 執行檔！完整路徑為：$exePath"
+              break
+            }
+          }
           # 自動尋找 zerotier-cli 執行檔（雙重備援）
           $ztCmd = Get-Command zerotier-cli -ErrorAction SilentlyContinue
           if ($ztCmd) {
