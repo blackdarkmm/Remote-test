@@ -10,6 +10,19 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      - name: 設定虛擬機管理員密碼
+        shell: pwsh
+        env:
+          RDP_PWD: ${{ secrets.RDP_PASSWORD }}
+        run: |
+          if (-not $env:RDP_PWD) {
+            Write-Error "❌ 未設定 RDP_PASSWORD 機密！"
+            exit 1
+          }
+          $Password = ConvertTo-SecureString $env:RDP_PWD -AsPlainText -Force
+          Set-LocalUser -Name "runneradmin" -Password $Password
+          Write-Host "✅ 已成功設定 runneradmin 的登入密碼！"
+    
       - name: Step 1 - 使用 Chocolatey 安裝 ZeroTier
         shell: pwsh
         run: |
