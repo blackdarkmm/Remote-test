@@ -1,0 +1,97 @@
+name: remote test (ZeroTier VPN)
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [remote-test-ZeroTier VPN]
+
+jobs:
+  minecraft:
+    runs-on: windows-latest
+
+    steps:
+      - name: 安裝 ZeroTier CLI
+        shell: powershell
+        run: |
+          $success = $false
+          for ($i = 1; $i -le 5; $i++) {
+              Write-Host "Attempt $i to install ZeroTier..."
+              winget install --id ZeroTier.ZeroTierOne -e --source winget --accept-package-agreements --accept-source-agreements
+              if ($LASTEXITCODE -eq 0) {
+                  $success = $true
+                  break
+              }
+              Write-Host "Retrying in 5 seconds..."
+              Start-Sleep -Seconds 5
+          }
+
+          if (-not $success) {
+              Write-Error "❌ Failed to install ZeroTier"
+              exit 1
+          }
+      - name: 加入 ZeroTier 網路
+        shell: powershell
+        env:
+          ZT_NETWORK_ID: ${{ secrets.ZEROTIER_NETWORK_ID }}
+        run: |
+          $ztCli = "C:\Program Files (x86)\ZeroTier\One\zerotier-cli.exe"
+
+          # 如果環境變數還沒套用，手動將 ZeroTier 目錄加入當前 Process 的 PATH
+          if (Test-Path "C:\Program Files (x86)\ZeroTier\One") {
+              $env:PATH += ";C:\Program Files (x86)\ZeroTier\One"
+          }
+
+          Write-Host "✅ 檢查 ZeroTier 服務是否啟動..."
+          $serviceStarted = $false
+          for ($i = 1; $i -le 10; $i++) {
+              $info = & $ztCli info 2>$null
+              if ($LASTEXITCODE -eq 0) {
+                  Write-Host "✅ ZeroTier 服務已啟動"
+                  $serviceStarted = $true
+                  break
+              }
+              Write-Host "⏳ 等待 ZeroTier 服務啟動... ($i/10)"
+              Start-Sleep -Seconds 2
+          }
+
+          if (-not $serviceStarted) {
+              Write-Error "❌ ZeroTier 服務未能成功啟動"
+              exit 1
+          }
+
+          Write-Host "🚀 嘗試加入 ZeroTier 網路：$env:ZT_NETWORK_ID"
+          & $ztCli join $env:ZT_NETWORK_ID
+          if ($LASTEXITCODE -ne 0) {
+              Write-Error "❌ 加入 ZeroTier 網路失敗"
+              exit 1
+          }
+
+          Write-Host "🕓 等待 ZeroTier 成功連線..."
+          $joined = $false
+          for ($i = 1; $i -le 20; $i++) {
+              $netInfo = & $ztCli listnetworks | Select-String -Pattern $env:ZT_NETWORK_ID
+              Write-Host "網路狀態詳細資訊：$netInfo"
+            
+              if ($netInfo -match "OK") {
+                  Write-Host "✅ 已成功加入 ZeroTier 網路"
+                  $joined = $true
+                  break
+              }
+              Start-Sleep -Seconds 3
+          }
+
+          if (-not $joined) {
+              Write-Error "❌ 等待逾時，未能成功獲得 OK 狀態"
+              exit 1
+          }
+      - name: 顯示 ZeroTier 身份檔案（只用一次）
+        shell: powershell
+        run: |
+          $secretPath = "C:\ProgramData\ZeroTier\One\identity.secret"
+          Write-Host "========== BEGIN identity.secret =========="
+          if (Test-Path $secretPath) {
+              Get-Content $secretPath
+          } else {
+              Write-Error "找不到 ZeroTier 身份檔案：$secretPath"
+          }
+          Write-Host "=========== END identity.secret ==========="
