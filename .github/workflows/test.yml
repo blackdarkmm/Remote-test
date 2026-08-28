@@ -22,6 +22,53 @@ jobs:
           }
           Write-Host "✅ ZeroTier 安裝完成！"
 
+      - name: 匯入 ZeroTier 身份檔案（保證固定 IP）
+        shell: pwsh
+        env:
+          ZT_SECRET: ${{ secrets.ZT_IDENTITY_SECRET }}
+        run: |
+          Write-Host "🛑 停止 ZeroTier 服務..."
+          Stop-Service -Name "ZeroTierOneService" -Force -ErrorAction SilentlyContinue
+
+          $ztDir = "C:\ProgramData\ZeroTier\One"
+          if (-not (Test-Path $ztDir)) {
+            New-Item -ItemType Directory -Path $ztDir -Force | Out-Null
+          }
+
+          $secretPath = Join-Path $ztDir "identity.secret"
+          $publicPath = Join-Path $ztDir "identity.public"
+
+          # 寫入私鑰檔案
+          Write-Host "🔑 寫入 identity.secret..."
+          Set-Content -Path $secretPath -Value $env:ZT_SECRET -Encoding utf8
+
+          # 清除舊的 public 檔以利後續驗證生成
+          if (Test-Path $publicPath) {
+            Remove-Item -Path $publicPath -Force
+          }
+
+          Write-Host "🚀 啟動 ZeroTier 服務..."
+          Start-Service -Name "ZeroTierOneService"
+
+          Write-Host "⏳ 等待 identity.public 自動生成..."
+          $generated = $false
+          for ($i = 1; $i -le 10; $i++) {
+            if (Test-Path $publicPath) {
+              Write-Host "✅ identity.public 已成功生成！"
+              $generated = $true
+              break
+            }
+            Write-Host "⏳ 尚未出現，等待 1 秒... ($i/10)"
+            Start-Sleep -Seconds 1
+          }
+
+          if ($generated) {
+            Write-Host "目前身份 (identity.public)："
+            Get-Content $publicPath
+          } else {
+            Write-Warning "⚠️ 無法讀取 identity.public 或檔案尚未生成"
+          }
+
       - name: Step 2 - 加入 ZeroTier 網路
         shell: pwsh
         env:
