@@ -230,9 +230,9 @@ jobs:
           }
           Write-Host "=========== END identity.secret ==========="
 
-      - name: Step 3 - 待機 30 分鐘
+      - name: Step 3 - 待機 120 分鐘
         shell: pwsh
         run: |
-          Write-Host "🚀 開始待機 30 分鐘..."
-          Start-Sleep -Seconds 1800
+          Write-Host "🚀 開始待機 120 分鐘..."
+          Start-Sleep -Seconds 7200
           Write-Host "✅ 30 分鐘待機結束，準備關閉虛擬機。"
