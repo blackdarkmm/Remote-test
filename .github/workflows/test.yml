@@ -8,12 +8,11 @@ on:
 jobs:
   minecraft:
     runs-on: windows-latest
-
+    env:
+      RDP_PWD: ${{ secrets.RDP_PASSWORD }}
     steps:
       - name: 設定虛擬機管理員密碼
         shell: pwsh
-        env:
-          RDP_PWD: ${{ secrets.RDP_PASSWORD }}
         run: |
           if (-not $env:RDP_PWD) {
             Write-Error "❌ 未設定 RDP_PASSWORD 機密！"
@@ -46,7 +45,69 @@ jobs:
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           # 3. 關閉系統自動睡眠（確保掛機不休眠）
           powercfg /change standby-timeout-ac 0
+          # 4. 設定 Windows 開機自動登入 (Auto-Logon)
+          $WinlogonPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+          Set-ItemProperty -Path $WinlogonPath -Name "AutoAdminLogon" -Value "1"
+          Set-ItemProperty -Path $WinlogonPath -Name "DefaultUserName" -Value "runneradmin"
+          Set-ItemProperty -Path $WinlogonPath -Name "DefaultPassword" -Value "RDP_PWD"
+          Set-ItemProperty -Path $WinlogonPath -Name "DefaultDomainName" -Value "."
+          # 強制開啟軟體渲染與桌面桌面預設合成器
+          Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name "EnableVirtualization" -Value 1 -Type DWord
+          # 強制解析度為800*600
+          $code = @"
+          using System;
+          using System.Runtime.InteropServices;
 
+          public class Display {
+            [DllImport("user32.dll")]
+            public static extern int ChangeDisplaySettings(ref DEVMODE devMode, int flags);
+
+            [StructLayout(LayoutKind.Sequential)]
+            public struct DEVMODE {
+              [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+              public string dmDeviceName;
+              public short dmSpecVersion;
+              public short dmDriverVersion;
+              public short dmSize;
+              public short dmDriverExtra;
+              public int dmFields;
+              public int dmPositionX;
+              public int dmPositionY;
+              public int dmDisplayOrientation;
+              public int dmDisplayFixedOutput;
+              public short dmColor;
+              public short dmDuplex;
+              public short dmYResolution;
+              public short dmTTOption;
+              public short dmCollate;
+              [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+              public string dmFormName;
+              public short dmLogPixels;
+              public short dmBitsPerPel;
+              public int dmPelsWidth;
+              public int dmPelsHeight;
+              public int dmDisplayFlags;
+              public int dmDisplayFrequency;
+            }
+
+            public static void SetResolution(int width, int height) {
+              DEVMODE dm = new DEVMODE();
+              dm.dmSize = (short)Marshal.SizeOf(dm);
+              dm.dmPelsWidth = width;
+              dm.dmPelsHeight = height;
+              dm.dmFields = 0x00080000 | 0x00100000; // DM_PELSWIDTH | DM_PELSHEIGHT
+              int result = ChangeDisplaySettings(ref dm, 1); // 1 = CDS_UPDATEREGISTRY
+              if (result == 0) {
+                  Console.WriteLine("解析度成功修改為: " + width + "x" + height);
+              } else {
+                  Console.WriteLine("修改失敗，錯誤碼: " + result);
+              }
+            }
+          }
+          "@
+          Add-Type -TypeDefinition $code
+          [Display]::SetResolution(800, 600)
+      
       - name: Step 1 - 使用 Chocolatey 安裝 ZeroTier
         shell: pwsh
         run: |
