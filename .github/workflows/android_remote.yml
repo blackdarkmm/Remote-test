@@ -56,31 +56,29 @@ jobs:
       # -------------------------------------------------------------
       # 2. 啟用 Binder 模組並啟動 Redroid 容器
       # -------------------------------------------------------------
-      - name: Build & Load Binder Kernel Module (Kernel 6.x)
+      - name: Setup Binder Devices via BinderFS
         run: |
-          echo "🌐 下載與編譯適用於 Kernel 6.x 的 binder 模組..."
-          sudo apt-get update
-          sudo apt-get install -y build-essential linux-headers-$(uname -r) android-tools-adb
+          echo "🌐 嘗試載入系統內建 binder/binder_linux 模組..."
+          sudo modprobe binder_linux devices="binder,hwbinder,vndbinder" || true
 
-          # 清理舊的 clone（若有）
-          rm -rf redroid-modules
-          git clone https://github.com/remote-android/redroid-modules.git
-          
-          # 進入 binder 目錄單獨編譯
-          cd redroid-modules/binder
-          
-          # 開始編譯 binder_linux
-          make -C /lib/modules/$(uname -r)/build M=$PWD modules
-          
-          # 載入產出的 binder_linux.ko
-          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder"
-          
-          # 設定設備節點權限
-          sudo chmod 666 /dev/binder* || true
+          # 如果 /dev/binder 還不存在，使用 BinderFS 動態掛載建立
+          if [ ! -e /dev/binder ]; then
+            echo "⚙️  /dev/binder 未出現，改用 BinderFS 建立裝置節點..."
+            sudo mkdir -p /dev/binderfs
+            sudo mount -t binder binder /dev/binderfs
+            
+            # 建立符號連結至 /dev/，確保 Redroid 能正常讀取
+            sudo ln -s /dev/binderfs/binder /dev/binder || true
+            sudo ln -s /dev/binderfs/hwbinder /dev/hwbinder || true
+            sudo ln -s /dev/binderfs/vndbinder /dev/vndbinder || true
+          fi
 
-          # 檢查 /dev/binder 節點狀態
+          # 設定存取權限
+          sudo chmod 666 /dev/binder* /dev/binderfs/* || true
+
+          # 檢查驗證裝置狀態
           echo "🔍 檢查 /dev/binder* 裝置狀態："
-          ls -l /dev/binder*
+          ls -l /dev/binder* /dev/binderfs/ 2>/dev/null || true
 
       - name: Start Redroid Container
         run: |
