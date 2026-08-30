@@ -31,8 +31,7 @@ jobs:
         git config --global --unset-all http.https://github.com || true
         
         # 透過指定空憑證與清空變數的方式進行 Clone
-        git -c http.extraheader="" clone https://github.com
-        cd redroid-modules
+        git -c http.extraheader="" clone https://github.com/remote-android/redroid-modules
         
         # 針對當前 Linux 核心編譯 binder 驅動
         make -C /lib/modules/$(uname -r)/build M=$PWD EXTRA_CFLAGS="-DCONFIG_ANDROID_BINDERFS" binder_linux.ko
