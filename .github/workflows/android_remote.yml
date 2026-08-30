@@ -56,9 +56,9 @@ jobs:
       # -------------------------------------------------------------
       # 2. 啟用 Binder 模組並啟動 Redroid 容器
       # -------------------------------------------------------------
-      - name: Build & Load Binder Kernel Module (Kernel 6.17+)
+      - name: Setup Redroid Binder Driver (Kernel 6.x Compatible)
         run: |
-          echo "🌐 開始下載並重設 Binder 模組編譯設定..."
+          echo "🌐 下載並準備修補適用於 Kernel 6.x 的 Redroid Binder 模組..."
           sudo apt-get update
           sudo apt-get install -y build-essential linux-headers-$(uname -r) android-tools-adb
 
@@ -66,25 +66,32 @@ jobs:
           git clone https://github.com/remote-android/redroid-modules.git
           cd redroid-modules/binder
 
-          # 1. 強制覆寫 Kbuild，徹底移除 binderfs.o
+          # 1. 重設 Kbuild，避開 VFS (binderfs)
           echo 'obj-m += binder_linux.o' > Kbuild
           echo 'binder_linux-y := binder.o binder_alloc.o' >> Kbuild
 
-          # 2. 修正 binder.c 內相容於 Kernel 6.6+ 的時間 API 呼叫
-          sed -i 's/deps->i_mtime = deps->i_atime = deps->i_ctime = current_time(deps);/ /g' binder.c 2>/dev/null || true
+          # 2. 補上巨集定義與相容性修補 (繞過 LSM 及 vma->vm_flags 唯讀變更)
+          sed -i '1i#define CONFIG_ANDROID_BINDER_DEVICES_HACKED "binder,hwbinder,vndbinder"' binder.c
+          sed -i 's/vma->vm_flags |=/vm_flags_set(vma,/g' binder.c || true
+          sed -i 's/vma->vm_flags &= ~/vm_flags_clear(vma,/g' binder.c || true
+          
+          # 3. 繞過 LSM (Security) API 變更，強制回傳 0 (允許操作)
+          sed -i 's/security_binder_transfer_binder([^)]*)/0/g' binder.c
+          sed -i 's/security_binder_transfer_file([^)]*)/0/g' binder.c
+          sed -i 's/security_binder_transaction([^)]*)/0/g' binder.c
+          sed -i 's/security_binder_set_context_mgr([^)]*)/0/g' binder.c
 
           echo "🛠️ 開始編譯 binder_linux.ko..."
-          make -C /lib/modules/$(uname -r)/build M=$PWD modules
+          make -C /lib/modules/$(uname -r)/build M=$PWD CFLAGS_MODULE="-DCONFIG_ANDROID_BINDER_DEVICES_HACKED=\\\"binder,hwbinder,vndbinder\\\"" modules
 
           echo "🚀 載入 binder_linux 核心模組..."
-          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder"
+          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder" || sudo insmod binder_linux.ko
           
           # 設定設備節點權限
-          sudo chmod 666 /dev/binder*
+          sudo chmod 666 /dev/binder* || true
 
           echo "🔍 檢查 /dev/binder* 裝置狀態："
           ls -l /dev/binder*
-
       - name: Start Redroid Container
         run: |
           # 啟動 Redroid (Android 11) 容器
