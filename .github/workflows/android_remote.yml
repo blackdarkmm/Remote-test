@@ -83,6 +83,10 @@ jobs:
           #define CONFIG_ANDROID_BINDER_DEVICES "binder,hwbinder,vndbinder"
           #endif
 
+          #ifndef CONFIG_ANDROID_BINDER_DEVICES_HACKED
+          #define CONFIG_ANDROID_BINDER_DEVICES_HACKED CONFIG_ANDROID_BINDER_DEVICES
+          #endif
+
           // 安全與追蹤 API 覆寫 (Linux 6.8+)
           #define security_binder_transfer_binder(from, to) 0
           #define security_binder_transfer_file(from, to, file) 0
@@ -105,12 +109,16 @@ jobs:
           #endif
           EOF
 
-          echo "🛠️ 3. 引入相容檔並調校 C preprocessor..."
-          # 只在檔案最開頭引入一次
+          echo "🛠️ 3. 引入相容檔並修正 Linux 6.3+/6.17+ 語法..."
+          # 在檔案最開頭引入相容檔
           sed -i '1i#include "binder_compat.h"' binder.c
 
-          # 修正 6.3+ vma->vm_flags 唯讀限制（精確替代）
+          # 修正 6.3+ vma->vm_flags 唯讀變更（包含位元或與位元清除）
           sed -i 's/vma->vm_flags |= VM_DONTCOPY | VM_MIXEDMAP;/vm_flags_set(vma, VM_DONTCOPY | VM_MIXEDMAP);/g' binder.c
+          sed -i 's/vma->vm_flags &= ~VM_MAYWRITE;/vm_flags_clear(vma, VM_MAYWRITE);/g' binder.c
+
+          # 修正 task_work_add 布林引數問題 (true -> TWA_RESUME)
+          sed -i 's/task_work_add(current, &twcb->twork, true);/task_work_add(current, &twcb->twork, TWA_RESUME);/g' binder.c
 
           echo "🛠️ 4. 準備 Kbuild 配置..."
           cat << 'EOF' > Kbuild
