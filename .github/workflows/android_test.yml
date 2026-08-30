@@ -12,6 +12,9 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        # ✨ 關鍵修正：不保留當前專案的臨時 Token 憑證，避免干擾後續公開倉庫的 clone
+        persist-credentials: false
 
     - name: 編譯載入核心模組並啟動 Redroid 容器
       run: |
