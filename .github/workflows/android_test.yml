@@ -32,9 +32,11 @@ jobs:
         
         # 透過指定空憑證與清空變數的方式進行 Clone
         git -c http.extraheader="" clone https://github.com/remote-android/redroid-modules
+
+        MODULE_SRC=$(pwd)
         
         # 針對當前 Linux 核心編譯 binder 驅動
-        make -C /lib/modules/$(uname -r)/build M=$PWD EXTRA_CFLAGS="-DCONFIG_ANDROID_BINDERFS" binder_linux.ko
+        sudo make -C /lib/modules/$(uname -r)/build M=$MODULE_SRC EXTRA_CFLAGS="-DCONFIG_ANDROID_BINDERFS" modules
         
         echo -e "\n🌐 =========================================="
         echo "🌐 步驟 3：載入核心模組並驗證..."
