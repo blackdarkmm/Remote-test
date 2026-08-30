@@ -56,10 +56,32 @@ jobs:
       # -------------------------------------------------------------
       # 2. 啟用 Binder 模組並啟動 Redroid 容器
       # -------------------------------------------------------------
-      - name: Enable Binder Kernel Modules
+      - name: Install & Load Anbox/Redroid Binder Modules
         run: |
-          sudo apt-get install -y linux-modules-extra-$(uname -r)
+          echo "🌐 下載與安裝 binder_linux 核心模組..."
+          # 安裝編譯所需的 dkms 工具
+          sudo apt-get update
+          sudo apt-get install -y dkms android-tools-adb
+
+          # 從社群專案下載預先編譯好的 binder/ashmem dkms 模組
+          git clone https://github.com/choff/anbox-modules.git
+          cd anbox-modules
+          
+          # 將模組寫入系統 Kernel
+          sudo cp anbox-binder.cfg /etc/modules-load.d/
+          sudo cp anbox-ashmem.cfg /etc/modules-load.d/
+          
+          sudo cp -r binder /usr/src/anbox-binder-1
+          sudo cp -r ashmem /usr/src/anbox-ashmem-1
+          
+          sudo dkms install anbox-binder/1
+          sudo dkms install anbox-ashmem/1
+          
+          # 載入 Binder 模組並掛載設備
+          sudo modprobe ashmem_linux
           sudo modprobe binder_linux devices="binder,hwbinder,vndbinder"
+          
+          # 確認設備已建立
           ls -l /dev/binder*
 
       - name: Start Redroid Container
