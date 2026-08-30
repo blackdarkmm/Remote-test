@@ -58,7 +58,7 @@ jobs:
       # -------------------------------------------------------------
       - name: Build & Load Binder Kernel Module (Kernel 6.17+)
         run: |
-          echo "🌐 開始下載並設定 Binder 模組..."
+          echo "🌐 開始下載並重設 Binder 模組編譯設定..."
           sudo apt-get update
           sudo apt-get install -y build-essential linux-headers-$(uname -r) android-tools-adb
 
@@ -66,10 +66,11 @@ jobs:
           git clone https://github.com/remote-android/redroid-modules.git
           cd redroid-modules/binder
 
-          # 1. 修改 Kbuild/Makefile，移除引發 VFS 相容性問題的 binderfs.o
-          sed -i 's/binder_linux-y := binder.o binder_alloc.o binderfs.o/binder_linux-y := binder.o binder_alloc.o/g' Kbuild Makefile 2>/dev/null || true
-          
-          # 2. 修正 inode 時間 API (Kernel 6.6+)
+          # 1. 強制覆寫 Kbuild，徹底移除 binderfs.o
+          echo 'obj-m += binder_linux.o' > Kbuild
+          echo 'binder_linux-y := binder.o binder_alloc.o' >> Kbuild
+
+          # 2. 修正 binder.c 內相容於 Kernel 6.6+ 的時間 API 呼叫
           sed -i 's/deps->i_mtime = deps->i_atime = deps->i_ctime = current_time(deps);/ /g' binder.c 2>/dev/null || true
 
           echo "🛠️ 開始編譯 binder_linux.ko..."
