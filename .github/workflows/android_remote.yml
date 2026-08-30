@@ -59,7 +59,7 @@ jobs:
       - name: Build & Load Redroid Binder for Kernel 6.17+
         run: |
           set -e
-          echo "🌐 準備環境並下載 redroid-modules..."
+          echo "🌐 1. 安裝編譯依賴..."
           sudo apt-get update
           sudo apt-get install -y build-essential linux-headers-$(uname -r) android-tools-adb
 
@@ -67,25 +67,23 @@ jobs:
           git clone https://github.com/remote-android/redroid-modules.git
           cd redroid-modules/binder
 
-          # 1. 覆寫 Kbuild，僅編譯核心 binder 驅動，跳過過時的 VFS binderfs
-          echo 'obj-m += binder_linux.o' > Kbuild
-          echo 'binder_linux-y := binder.o binder_alloc.o' >> Kbuild
-
-          # 2. 建立相容層標頭檔 binder_compat.h
+          echo "🛠️ 2. 建立相容性標頭檔 binder_compat.h..."
           cat << 'EOF' > binder_compat.h
           #ifndef _BINDER_COMPAT_H
           #define _BINDER_COMPAT_H
 
           #include <linux/file.h>
+          #include <linux/fdtable.h>
           #include <linux/mm.h>
           #include <linux/security.h>
           #include <linux/cred.h>
+          #include <linux/task_work.h>
 
           #ifndef CONFIG_ANDROID_BINDER_DEVICES
           #define CONFIG_ANDROID_BINDER_DEVICES "binder,hwbinder,vndbinder"
           #endif
 
-          // 核心 6.17+ 繞過與修補 API
+          // 安全與追蹤 API 覆寫 (Linux 6.8+)
           #define security_binder_transfer_binder(from, to) 0
           #define security_binder_transfer_file(from, to, file) 0
           #define security_binder_transaction(from, to) 0
@@ -97,6 +95,7 @@ jobs:
           #define freezer_do_not_count() do {} while(0)
           #define freezer_count() do {} while(0)
 
+          // 替代已移除的 __close_fd_get_file
           static inline void binder_compat_close_fd(int fd, struct file **f) {
               *f = fget(fd);
               if (*f) close_fd(fd);
@@ -106,60 +105,28 @@ jobs:
           #endif
           EOF
 
-          # 3. 引入相容層並修復 binder.c
+          echo "🛠️ 3. 引入相容檔並調校 C preprocessor..."
+          # 只在檔案最開頭引入一次
           sed -i '1i#include "binder_compat.h"' binder.c
-          
-          # 修正 Linux 6.3+ vm_flags 唯讀變更
-          sed -i 's/vma->vm_flags |=/vm_flags_set(vma,/g' binder.c || true
-          sed -i 's/vma->vm_flags &= ~/vm_flags_clear(vma,/g' binder.c || true
 
-          # 修正註解內部潛在的語法干擾與 task_work_add API
-          sed -i 's/task_work_add(current, &twcb->twork, true);/task_work_add(current, &twcb->twork, TWA_RESUME);/g' binder.c
+          # 修正 6.3+ vma->vm_flags 唯讀限制（精確替代）
+          sed -i 's/vma->vm_flags |= VM_DONTCOPY | VM_MIXEDMAP;/vm_flags_set(vma, VM_DONTCOPY | VM_MIXEDMAP);/g' binder.c
 
-          echo "🛠️ 開始編譯 binder_linux.ko..."
-          make -C /lib/modules/$(uname -r)/build M=$PWD KCFLAGS="-Wno-error" modules
+          echo "🛠️ 4. 準備 Kbuild 配置..."
+          cat << 'EOF' > Kbuild
+          obj-m += binder_linux.o
+          binder_linux-y := binder.o binder_alloc.o
+          ccflags-y := -I$(src) -Wno-implicit-function-declaration -Wno-error
+          EOF
 
-          echo "🚀 載入 binder_linux 核心模組..."
+          echo "🛠️ 5. 開始編譯..."
+          make -C /lib/modules/$(uname -r)/build M=$PWD modules
+
+          echo "🚀 6. 載入 binder_linux 核心模組..."
           sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder"
-
           sudo chmod 666 /dev/binder*
 
-          echo "✅ 啟動 Redroid 容器..."
-          docker rm -f redroid 2>/dev/null || true
-
-          docker run -itd \
-            --name=redroid \
-            --privileged \
-            -v /dev/binder:/dev/binder \
-            -v /dev/hwbinder:/dev/hwbinder \
-            -v /dev/vndbinder:/dev/vndbinder \
-            -v /data/redroid:/data \
-            -p 5555:5555 \
-            redroid/redroid:11.0.0-latest \
-            androidboot.use_memfd=1
-
-          echo "🔍 狀態確認："
-          ls -l /dev/binder*
-          docker ps -f name=redroid
-          # 3. 引入相容層並修復 binder.c
-          sed -i '1i#include "binder_compat.h"' binder.c
-          
-          # 修正 Linux 6.3+ vm_flags 唯讀變更
-          sed -i 's/vma->vm_flags |=/vm_flags_set(vma,/g' binder.c || true
-          sed -i 's/vma->vm_flags &= ~/vm_flags_clear(vma,/g' binder.c || true
-
-          # 修正註解內部潛在的語法干擾與 task_work_add API
-          sed -i 's/task_work_add(current, &twcb->twork, true);/task_work_add(current, &twcb->twork, TWA_RESUME);/g' binder.c
-
-          echo "🛠️ 開始編譯 binder_linux.ko..."
-          make -C /lib/modules/$(uname -r)/build M=$PWD KCFLAGS="-Wno-error" modules
-
-          echo "🚀 載入 binder_linux 核心模組..."
-          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder"
-
-          sudo chmod 666 /dev/binder*
-
-          echo "✅ 啟動 Redroid 容器..."
+          echo "✅ 7. 啟動 Redroid 容器..."
           docker rm -f redroid 2>/dev/null || true
 
           docker run -itd \
