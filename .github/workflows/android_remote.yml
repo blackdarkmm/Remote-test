@@ -56,76 +56,72 @@ jobs:
       # -------------------------------------------------------------
       # 2. 啟用 Binder 模組並啟動 Redroid 容器
       # -------------------------------------------------------------
-      - name: Setup Redroid Binder Driver (Kernel 6.x Compatible)
+      - name: Build & Load Redroid Binder Module (Kernel 6.17 Fix)
         run: |
           set -e
+          echo "🌐 開始準備修補與編譯適用於 Kernel 6.17 的 Binder 模組..."
+          sudo apt-get update
+          sudo apt-get install -y build-essential linux-headers-$(uname -r) android-tools-adb
 
-          echo "🌐 =========================================="
-          echo "🌐 步驟 1：建立並掛載內建的 binderfs..."
-          echo "🌐 =========================================="
-          sudo mkdir -p /dev/binderfs
+          rm -rf redroid-modules
+          git clone https://github.com/remote-android/redroid-modules.git
+          cd redroid-modules/binder
 
-          # 檢查是否已掛載，避免重複掛載
-          if ! mountpoint -q /dev/binderfs; then
-            sudo mount -t binder binder /dev/binderfs
-            echo "✅ binderfs 掛載成功！"
-          else
-            echo "ℹ️ binderfs 已經處於掛載狀態。"
-          fi
+          # 1. 重新寫入 Kbuild，僅編譯核心檔
+          echo 'obj-m += binder_linux.o' > Kbuild
+          echo 'binder_linux-y := binder.o binder_alloc.o' >> Kbuild
 
-          # 確保基礎節點存在並設定權限
-          sudo chmod 777 /dev/binderfs/* || true
+          # 2. 注入 Linux 6.17+ API 語言補丁與參數相容性
+          sed -i '1i#define CONFIG_ANDROID_BINDER_DEVICES "binder,hwbinder,vndbinder"' binder.c
+          sed -i '1i#define CONFIG_ANDROID_BINDER_DEVICES_HACKED "binder,hwbinder,vndbinder"' binder.c
 
+          # 修正 task_work 相容性 (task_work_add API)
+          sed -i 's/task_work_add(current, &twcb->twork, true);/task_work_add(current, &twcb->twork, TWA_RESUME);/g' binder.c || true
 
-          echo -e "\n🌐 =========================================="
-          echo "🌐 步驟 2：設定開機自動掛載與權限 (持久化)..."
-          echo "🌐 =========================================="
-          # 寫入 /etc/fstab (若不存在)
-          if ! grep -q "binder /dev/binderfs" /etc/fstab; then
-            echo "binder /dev/binderfs binder defaults 0 0" | sudo tee -a /etc/fstab
-            echo "✅ 已成功寫入 /etc/fstab"
-          fi
+          # 繞過 LSM (Security) API 參數類型不符 (Kernel 6.8+ 改用 struct cred)
+          sed -i 's/security_binder_transfer_binder([^)]*)/0/g' binder.c
+          sed -i 's/security_binder_transfer_file([^)]*)/0/g' binder.c
+          sed -i 's/security_binder_transaction([^)]*)/0/g' binder.c
+          sed -i 's/security_binder_set_context_mgr([^)]*)/0/g' binder.c
+          sed -i 's/security_task_getsecid([^)]*);/memset(\&secid, 0, sizeof(secid));/g' binder.c
+          sed -i 's/security_secid_to_secctx([^)]*)/-EOPNOTSUPP/g' binder.c
+          sed -i 's/security_release_secctx([^)]*);//g' binder.c
 
-          # 寫入 udev 規則，確保動態產生的節點權限正確
-          cat <<EOF | sudo tee /etc/udev/rules.d/99-binderfs.rules > /dev/null
-          SUBSYSTEM=="binder", KERNEL=="binder", MODE="0666"
-          SUBSYSTEM=="binder", KERNEL=="hwbinder", MODE="0666"
-          SUBSYSTEM=="binder", KERNEL=="vndbinder", MODE="0666"
-          EOF
+          # 修正 vm_flags 唯讀變更
+          sed -i 's/vma->vm_flags |=/vm_flags_set(vma,/g' binder.c || true
+          sed -i 's/vma->vm_flags &= ~/vm_flags_clear(vma,/g' binder.c || true
 
-          # 重新載入 udev 規則
-          sudo udevadm control --reload-rules && sudo udevadm trigger
-          echo "✅ 自動掛載與 Udev 規則設定完成！"
+          # 移除 freezer API (Kernel 6.1+ 移除)
+          sed -i 's/freezer_do_not_count();//g' binder.c
+          sed -i 's/freezer_count();//g' binder.c
 
+          echo "🛠️ 開始編譯 binder_linux.ko..."
+          make -C /lib/modules/$(uname -r)/build M=$PWD KCFLAGS="-Wno-error" modules
 
-          echo -e "\n🌐 =========================================="
-          echo "🌐 步驟 3：啟動 Redroid 容器 (使用 binderfs)..."
-          echo "🌐 =========================================="
+          echo "🚀 載入 binder_linux 核心模組..."
+          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder" || sudo insmod binder_linux.ko
 
-          # 如果已有同名容器先進行清理
+          sudo chmod 666 /dev/binder*
+
+          echo "✅ 啟動 Redroid 容器..."
           docker rm -f redroid 2>/dev/null || true
-
-          # 啟動 Redroid 容器 (此處以 Android 11 為例，可自行更換版本)
+          
+          # 將宿主機的 /dev/binder* 掛載進 Redroid 容器
           docker run -itd \
             --name=redroid \
             --privileged \
-            -v /dev/binderfs:/dev/binderfs \
+            -v /dev/binder:/dev/binder \
+            -v /dev/hwbinder:/dev/hwbinder \
+            -v /dev/vndbinder:/dev/vndbinder \
             -v /data/redroid:/data \
             -p 5555:5555 \
             redroid/redroid:11.0.0-latest \
             androidboot.use_memfd=1
 
-          echo "✅ Redroid 容器已成功啟動！"
-
-
-          echo -e "\n🔍 =========================================="
-          echo "🔍 狀態檢查："
-          echo "=============================================="
-          echo "1. Binderfs 節點清單："
-          ls -l /dev/binderfs
-
-          echo -e "\n2. Docker 容器狀態："
+          echo "🔍 狀態確認："
+          ls -l /dev/binder*
           docker ps -f name=redroid
+          
       - name: Start Redroid Container
         run: |
           # 啟動 Redroid (Android 11) 容器
