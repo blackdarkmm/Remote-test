@@ -141,6 +141,41 @@ jobs:
           echo "🔍 狀態確認："
           ls -l /dev/binder*
           docker ps -f name=redroid
+          # 3. 引入相容層並修復 binder.c
+          sed -i '1i#include "binder_compat.h"' binder.c
+          
+          # 修正 Linux 6.3+ vm_flags 唯讀變更
+          sed -i 's/vma->vm_flags |=/vm_flags_set(vma,/g' binder.c || true
+          sed -i 's/vma->vm_flags &= ~/vm_flags_clear(vma,/g' binder.c || true
+
+          # 修正註解內部潛在的語法干擾與 task_work_add API
+          sed -i 's/task_work_add(current, &twcb->twork, true);/task_work_add(current, &twcb->twork, TWA_RESUME);/g' binder.c
+
+          echo "🛠️ 開始編譯 binder_linux.ko..."
+          make -C /lib/modules/$(uname -r)/build M=$PWD KCFLAGS="-Wno-error" modules
+
+          echo "🚀 載入 binder_linux 核心模組..."
+          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder"
+
+          sudo chmod 666 /dev/binder*
+
+          echo "✅ 啟動 Redroid 容器..."
+          docker rm -f redroid 2>/dev/null || true
+
+          docker run -itd \
+            --name=redroid \
+            --privileged \
+            -v /dev/binder:/dev/binder \
+            -v /dev/hwbinder:/dev/hwbinder \
+            -v /dev/vndbinder:/dev/vndbinder \
+            -v /data/redroid:/data \
+            -p 5555:5555 \
+            redroid/redroid:11.0.0-latest \
+            androidboot.use_memfd=1
+
+          echo "🔍 狀態確認："
+          ls -l /dev/binder*
+          docker ps -f name=redroid
           
       - name: Start Redroid Container
         run: |
