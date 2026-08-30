@@ -56,24 +56,29 @@ jobs:
       # -------------------------------------------------------------
       # 2. 啟用 Binder 模組並啟動 Redroid 容器
       # -------------------------------------------------------------
-      - name: Install & Load Redroid Binder Modules (Ubuntu 24.04 / Kernel 6.x)
+      - name: Build & Load Binder Kernel Module (Kernel 6.x)
         run: |
-          echo "🌐 開始下載並編譯適合 Kernel 6.x 的 binder_linux 模組..."
+          echo "🌐 下載與編譯適用於 Kernel 6.x 的 binder 模組..."
           sudo apt-get update
           sudo apt-get install -y build-essential linux-headers-$(uname -r) android-tools-adb
 
-          # 從社群專案下載支援最新 Linux Kernel (6.x) 的 binder 驅動
+          # 清理舊的 clone（若有）
+          rm -rf redroid-modules
           git clone https://github.com/remote-android/redroid-modules.git
-          cd redroid-modules
-
-          # 編譯並載入 binder_linux 模組
-          make -C /lib/modules/$(uname -r)/build M=$PWD
-          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder" || true
           
-          # 建立裝置節點權限
+          # 進入 binder 目錄單獨編譯
+          cd redroid-modules/binder
+          
+          # 開始編譯 binder_linux
+          make -C /lib/modules/$(uname -r)/build M=$PWD modules
+          
+          # 載入產出的 binder_linux.ko
+          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder"
+          
+          # 設定設備節點權限
           sudo chmod 666 /dev/binder* || true
 
-          # 驗證 binder 裝置是否成功啟動
+          # 檢查 /dev/binder 節點狀態
           echo "🔍 檢查 /dev/binder* 裝置狀態："
           ls -l /dev/binder*
 
