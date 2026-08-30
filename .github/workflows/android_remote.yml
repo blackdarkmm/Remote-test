@@ -56,29 +56,38 @@ jobs:
       # -------------------------------------------------------------
       # 2. 啟用 Binder 模組並啟動 Redroid 容器
       # -------------------------------------------------------------
-      - name: Setup Binder Devices via BinderFS
+      - name: Patch, Build & Load Binder Module (Kernel 6.17+)
         run: |
-          echo "🌐 嘗試載入系統內建 binder/binder_linux 模組..."
-          sudo modprobe binder_linux devices="binder,hwbinder,vndbinder" || true
+          echo "🌐 下載並修補 Binder 模組原始碼以相容 Kernel 6.17..."
+          sudo apt-get update
+          sudo apt-get install -y build-essential linux-headers-$(uname -r) android-tools-adb
 
-          # 如果 /dev/binder 還不存在，使用 BinderFS 動態掛載建立
-          if [ ! -e /dev/binder ]; then
-            echo "⚙️  /dev/binder 未出現，改用 BinderFS 建立裝置節點..."
-            sudo mkdir -p /dev/binderfs
-            sudo mount -t binder binder /dev/binderfs
-            
-            # 建立符號連結至 /dev/，確保 Redroid 能正常讀取
-            sudo ln -s /dev/binderfs/binder /dev/binder || true
-            sudo ln -s /dev/binderfs/hwbinder /dev/hwbinder || true
-            sudo ln -s /dev/binderfs/vndbinder /dev/vndbinder || true
-          fi
+          rm -rf redroid-modules
+          git clone https://github.com/remote-android/redroid-modules.git
+          cd redroid-modules/binder
 
-          # 設定存取權限
-          sudo chmod 666 /dev/binder* /dev/binderfs/* || true
+          # 1. 修正 inode 時間欄位 API (Kernel 6.6+ 變更)
+          sed -i 's/inode->i_mtime = inode->i_atime = inode->i_ctime = current_time(inode);/inode_set_mtime_to_ts(inode, inode_set_atime_to_ts(inode, inode_set_ctime_current(inode)));/g' binderfs.c
+          sed -i 's/ret->i_atime = ret->i_mtime = ret->i_ctime = current_time(ret);/inode_set_mtime_to_ts(ret, inode_set_atime_to_ts(ret, inode_set_ctime_current(ret)));/g' binderfs.c
 
-          # 檢查驗證裝置狀態
+          # 2. 修正 lookup_one_len 標頭檔包含問題
+          sed -i '1i#include <linux/namei.h>' binderfs.c
+
+          # 3. 修正 simple_rename 參數列 (Kernel 6.3+ 導入 mnt_idmap)
+          sed -i 's/simple_rename(old_dir, old_dentry, new_dir, new_dentry, flags)/simple_rename(\&nop_mnt_idmap, old_dir, old_dentry, new_dir, new_dentry, flags)/g' binderfs.c
+          sed -i 's/int binderfs_rename(struct inode \*old_dir/int binderfs_rename(struct mnt_idmap \*idmap, struct inode \*old_dir/g' binderfs.c
+
+          echo "🛠️ 開始編譯修補後的 binder_linux.ko..."
+          make -C /lib/modules/$(uname -r)/build M=$PWD modules
+
+          echo "🚀 載入 binder_linux 核心模組..."
+          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder"
+          
+          # 設定設備節點權限
+          sudo chmod 666 /dev/binder*
+
           echo "🔍 檢查 /dev/binder* 裝置狀態："
-          ls -l /dev/binder* /dev/binderfs/ 2>/dev/null || true
+          ls -l /dev/binder*
 
       - name: Start Redroid Container
         run: |
