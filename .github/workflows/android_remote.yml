@@ -1,1 +1,101 @@
+name: Redroid Android with ZeroTier & scrcpy
 
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [remote-test-ZeroTier VPN]
+
+jobs:
+  redroid-runner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------------
+      # 1. 安裝並配置 ZeroTier 網路連線
+      # -------------------------------------------------------------
+      - name: Install ZeroTier & ADB Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl android-tools-adb
+          curl -s https://install.zerotier.com | sudo bash
+
+      - name: Import ZeroTier Identity (保證固定 IP)
+        env:
+          ZT_SECRET: ${{ secrets.ZT_IDENTITY_SECRET }}
+        run: |
+          sudo systemctl stop zerotier-one || true
+          sudo mkdir -p /var/lib/zerotier-one
+          
+          # 寫入私鑰檔案
+          echo "$ZT_SECRET" | sudo tee /var/lib/zerotier-one/identity.secret > /dev/null
+          sudo rm -f /var/lib/zerotier-one/identity.public
+          
+          sudo systemctl start zerotier-one
+          sleep 3
+
+      - name: Join ZeroTier Network
+        env:
+          ZT_NETWORK_ID: ${{ secrets.ZEROTIER_NETWORK_ID }}
+        run: |
+          echo "🚀 加入 ZeroTier 網路: $ZT_NETWORK_ID"
+          sudo zerotier-cli join $ZT_NETWORK_ID
+          
+          # 等待取得 OK 狀態
+          for i in {1..20}; do
+            STATUS=$(sudo zerotier-cli listnetworks | grep $ZT_NETWORK_ID | awk '{print $5}')
+            echo "ZeroTier 狀態: $STATUS ($i/20)"
+            if [ "$STATUS" == "OK" ]; then
+              echo "✅ 已成功加入 ZeroTier 網路！"
+              break
+            fi
+            sleep 3
+          done
+
+      # -------------------------------------------------------------
+      # 2. 啟用 Binder 模組並啟動 Redroid 容器
+      # -------------------------------------------------------------
+      - name: Enable Binder Kernel Modules
+        run: |
+          sudo apt-get install -y linux-modules-extra-$(uname -r)
+          sudo modprobe binder_linux devices="binder,hwbinder,vndbinder"
+          ls -l /dev/binder*
+
+      - name: Start Redroid Container
+        run: |
+          # 啟動 Redroid (Android 11) 容器
+          # - android_fps=15: 降低幀率減少 CPU 負擔
+          # - redroid.gpu.mode=guest: 使用 CPU 軟體渲染 (OpenGL ES 3.0)
+          docker run -d \
+            --name redroid \
+            --privileged \
+            --pull always \
+            -p 5555:5555 \
+            -v /data/redroid:/data \
+            redroid/redroid:11.0.0-latest \
+            android_fps=15 \
+            redroid.gpu.mode=guest
+
+      - name: Wait for Android Boot
+        run: |
+          echo "🔗 連線至本機 ADB..."
+          adb connect 127.0.0.1:5555
+          adb wait-for-device
+          
+          echo "⏳ 等待 Android 系統開機完成..."
+          while [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" != "1" ]; do
+            sleep 2
+          done
+          echo "✅ Redroid Android 系統已順利開機完畢！"
+
+      # -------------------------------------------------------------
+      # 3. 待機 120 分鐘 (提供 ZeroTier + ADB/scrcpy 遠端連線通道)
+      # -------------------------------------------------------------
+      - name: Keep-Alive for scrcpy Connection (120 Minutes)
+        run: |
+          echo "================================================="
+          echo "🚀 Redroid 容器與 ZeroTier 服務已順利運作中！"
+          echo "請從本地電腦透過 scrcpy 連線至遠端 ZeroTier IP"
+          echo "================================================="
+          sleep 7200
