@@ -66,16 +66,20 @@ jobs:
           git clone https://github.com/remote-android/redroid-modules.git
           cd redroid-modules/binder
 
-          # 1. 修正 inode 時間欄位 API (Kernel 6.6+ 變更)
+          # 1. 補上缺失的系統標頭檔
+          sed -i '1s/^/#include <linux\/namei.h>\n#include <linux\/mnt_idmap.h>\n/' binderfs.c
+
+          # 2. 修正 inode 時間欄位 API (Kernel 6.6+ 變更)
           sed -i 's/inode->i_mtime = inode->i_atime = inode->i_ctime = current_time(inode);/inode_set_mtime_to_ts(inode, inode_set_atime_to_ts(inode, inode_set_ctime_current(inode)));/g' binderfs.c
           sed -i 's/ret->i_atime = ret->i_mtime = ret->i_ctime = current_time(ret);/inode_set_mtime_to_ts(ret, inode_set_atime_to_ts(ret, inode_set_ctime_current(ret)));/g' binderfs.c
-
-          # 2. 修正 lookup_one_len 標頭檔包含問題
-          sed -i '1i#include <linux/namei.h>' binderfs.c
 
           # 3. 修正 simple_rename 參數列 (Kernel 6.3+ 導入 mnt_idmap)
           sed -i 's/simple_rename(old_dir, old_dentry, new_dir, new_dentry, flags)/simple_rename(\&nop_mnt_idmap, old_dir, old_dentry, new_dir, new_dentry, flags)/g' binderfs.c
           sed -i 's/int binderfs_rename(struct inode \*old_dir/int binderfs_rename(struct mnt_idmap \*idmap, struct inode \*old_dir/g' binderfs.c
+
+          # 4. 修正 lookup_one_len API 變更 ( Kernel 6.x 替換為 lookup_one )
+          sed -i 's/lookup_one_len(name, root, name_len)/lookup_one(\&nop_mnt_idmap, name, root, name_len)/g' binderfs.c
+          sed -i 's/lookup_one_len(name, parent, strlen(name))/lookup_one(\&nop_mnt_idmap, name, parent, strlen(name))/g' binderfs.c
 
           echo "🛠️ 開始編譯修補後的 binder_linux.ko..."
           make -C /lib/modules/$(uname -r)/build M=$PWD modules
