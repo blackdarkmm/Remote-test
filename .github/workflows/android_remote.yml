@@ -67,6 +67,9 @@ jobs:
           git clone https://github.com/remote-android/redroid-modules.git
           cd redroid-modules/binder
 
+          # 確保程式碼為原始乾淨狀態
+          git checkout binder.c
+
           echo "🛠️ 2. 建立相容性標頭檔 binder_compat.h..."
           cat << 'EOF' > binder_compat.h
           #ifndef _BINDER_COMPAT_H
@@ -109,16 +112,17 @@ jobs:
           #endif
           EOF
 
-          echo "🛠️ 3. 引入相容檔並修正 Linux 6.3+/6.17+ 語法..."
-          # 在檔案最開頭引入相容檔
+          echo "🛠️ 3. 引入相容檔與精確修正 Linux 6.3+/6.17+ API..."
+          # 1. 引入 compat 標頭檔
           sed -i '1i#include "binder_compat.h"' binder.c
 
-          # 修正 6.3+ vma->vm_flags 唯讀變更（包含位元或與位元清除）
+          # 2. 修正 vma->vm_flags 唯讀變更
           sed -i 's/vma->vm_flags |= VM_DONTCOPY | VM_MIXEDMAP;/vm_flags_set(vma, VM_DONTCOPY | VM_MIXEDMAP);/g' binder.c
           sed -i 's/vma->vm_flags &= ~VM_MAYWRITE;/vm_flags_clear(vma, VM_MAYWRITE);/g' binder.c
 
-          # 修正 task_work_add 布林引數問題 (true -> TWA_RESUME)
-          sed -i 's/task_work_add(current, &twcb->twork, true);/task_work_add(current, &twcb->twork, TWA_RESUME);/g' binder.c
+          # 3. 精確替換 task_work_add 的第三個引數 (true/false -> TWA_RESUME)
+          sed -i 's/task_work_add(\([^,]*\), \([^,]*\), true)/task_work_add(\1, \2, TWA_RESUME)/g' binder.c
+          sed -i 's/task_work_add(\([^,]*\), \([^,]*\), false)/task_work_add(\1, \2, TWA_RESUME)/g' binder.c
 
           echo "🛠️ 4. 準備 Kbuild 配置..."
           cat << 'EOF' > Kbuild
