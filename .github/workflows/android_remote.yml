@@ -70,7 +70,7 @@ jobs:
           # 強制還原程式碼至乾淨狀態
           git checkout binder.c binder_alloc.c
 
-          echo "🛠️ 2. 建立完整的相容性標頭檔 binder_compat.h..."
+          echo "🛠️ 2. 建立相容性標頭檔 binder_compat.h..."
           cat << 'EOF' > binder_compat.h
           #ifndef _BINDER_COMPAT_H
           #define _BINDER_COMPAT_H
@@ -91,7 +91,7 @@ jobs:
           #define CONFIG_ANDROID_BINDER_DEVICES_HACKED CONFIG_ANDROID_BINDER_DEVICES
           #endif
 
-          // 1. 安全與追蹤 API 覆寫 (Linux 6.8+)
+          // 1. 安全與追蹤 API 覆寫
           #define security_binder_transfer_binder(from, to) 0
           #define security_binder_transfer_file(from, to, file) 0
           #define security_binder_transaction(from, to) 0
@@ -110,7 +110,7 @@ jobs:
           }
           #define __close_fd_get_file(fd, f) binder_compat_close_fd(fd, f)
 
-          // 3. mmap_sem 轉換為 mmap_lock (Linux 5.8+)
+          // 3. mmap_sem 轉換為 mmap_lock
           #define down_read(sem) mmap_read_lock(mm)
           #define up_read(sem) mmap_read_unlock(mm)
           #define down_read_trylock(sem) mmap_read_trylock(mm)
@@ -123,7 +123,7 @@ jobs:
           EOF
 
           echo "🛠️ 3. 引入相容檔與修復 API 語法..."
-          # 在 binder.c 與 binder_alloc.c 最開頭引入 compat 標頭檔
+          # 在最開頭引入 compat 標頭檔
           sed -i '1i#include "binder_compat.h"' binder.c
           sed -i '1i#include "binder_compat.h"' binder_alloc.c
 
@@ -134,15 +134,15 @@ jobs:
           sed -i 's/task_work_add(\([^,]*\), \([^,]*\), false)/task_work_add(\1, \2, TWA_RESUME)/g' binder.c
 
           # --- 修正 binder_alloc.c ---
-          # 修正 list_lru_walk callback 簽名 (移除 spinlock_t * 參數)
-          sed -i 's/enum lru_status binder_alloc_free_page(struct list_head \*item, struct list_lru_one \*lru, spinlock_t \*lock, void \*cb_arg)/enum lru_status binder_alloc_free_page(struct list_head *item, struct list_lru_one *lru, void *cb_arg)/g' binder_alloc.c
-          sed -i 's/enum lru_status binder_alloc_free_page(struct list_head \*item, struct list_lru_one \*lru, struct spinlock \*lock, void \*cb_arg)/enum lru_status binder_alloc_free_page(struct list_head *item, struct list_lru_one *lru, void *cb_arg)/g' binder_alloc.c
+          # 精準移除 binder_alloc_free_page 函數簽名與聲明中的 spinlock_t 參數
+          sed -i 's/spinlock_t \*lock,//g' binder_alloc.c
+          sed -i 's/struct spinlock \*lock,//g' binder_alloc.c
 
           echo "🛠️ 4. 準備 Kbuild 配置..."
           cat << 'EOF' > Kbuild
           obj-m += binder_linux.o
           binder_linux-y := binder.o binder_alloc.o
-          ccflags-y := -I$(src) -Wno-implicit-function-declaration -Wno-error
+          ccflags-y := -I$(src) -Wno-implicit-function-declaration -Wno-error -Wno-macro-redefined
           EOF
 
           echo "🛠️ 5. 開始編譯..."
