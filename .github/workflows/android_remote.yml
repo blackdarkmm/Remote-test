@@ -243,15 +243,38 @@ jobs:
           ls -la /dev/*binder* || true
           docker ps -f name=redroid
 
-      - name: test android container
+      - name: Verify Redroid Boot Status
         run: |
-          docker logs -f redroid
+          echo "📋 查看容器最新日誌（不持續監聽）..."
+          docker logs --tail 50 redroid
 
-          # 2. 透過 ADB 連線至容器
-          adb connect 127.0.0.1:5555
+          echo "⏳ 等待 ADB 服務啟動..."
+          sleep 10
 
-          # 3. 進入 Android Shell 檢查系統服務（例如 boot_completed 屬性）
-          adb -s 127.0.0.1:5555 shell getprop sys.boot_completed
+          echo "🔗 連線至 Redroid ADB..."
+          adb connect 127.0.0.1:5555 || true
+
+          echo "⏳ 等待 Android 系統完全開機 (boot_completed)..."
+          BOOT_COMPLETE=""
+          FOR_COUNTER=0
+          MAX_RETRIES=30
+
+          until [ "$BOOT_COMPLETE" = "1" ] || [ $FOR_COUNTER -eq $MAX_RETRIES ]; do
+            BOOT_COMPLETE=$(adb -s 127.0.0.1:5555 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            if [ "$BOOT_COMPLETE" = "1" ]; then
+              echo "🎉 Redroid 開機完成！(sys.boot_completed = 1)"
+              break
+            fi
+            echo "⌛ Android 啟動中... ($((FOR_COUNTER+1))/$MAX_RETRIES)"
+            sleep 3
+            FOR_COUNTER=$((FOR_COUNTER+1))
+          done
+
+          if [ "$BOOT_COMPLETE" != "1" ]; then
+            echo "❌ 開機逾時，列出最後 100 行容器日誌以供排錯："
+            docker logs --tail 100 redroid
+            exit 1
+          fi
           
       - name: Start Redroid Container
         run: |
