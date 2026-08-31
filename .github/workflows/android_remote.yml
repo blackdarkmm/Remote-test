@@ -93,6 +93,14 @@ jobs:
           #undef CONFIG_ANDROID_BINDERFS
           #endif
 
+          #ifndef CONFIG_ANDROID_BINDER_DEVICES
+          #define CONFIG_ANDROID_BINDER_DEVICES "binder,hwbinder,vndbinder"
+          #endif
+
+          #ifndef CONFIG_ANDROID_BINDER_DEVICES_HACKED
+          #define CONFIG_ANDROID_BINDER_DEVICES_HACKED CONFIG_ANDROID_BINDER_DEVICES
+          #endif
+
           // 取消 pr_fmt 重定義警告
           #ifdef pr_fmt
           #undef pr_fmt
@@ -154,11 +162,11 @@ jobs:
           sed -i 's/spin_unlock(lock);/\/* spin_unlock(lock); *\//g' binder_alloc.c
           sed -i 's/spin_lock(lock);/\/* spin_lock(lock); *\//g' binder_alloc.c
 
-          echo "🛠️ 4. 準備 Kbuild 配置 (注入裝置定義)..."
+          echo "🛠️ 4. 準備 Kbuild 配置 (修正巨集傳遞)..."
           cat << 'EOF' > Kbuild
           obj-m += binder_linux.o
           binder_linux-y := binder.o binder_alloc.o
-          ccflags-y := -I$(src) -Wno-implicit-function-declaration -Wno-error -Wno-unused-variable -Wno-unused-but-set-variable -DCONFIG_ANDROID_BINDER_DEVICES=\"binder,hwbinder,vndbinder\"
+          ccflags-y := -I$(src) -Wno-implicit-function-declaration -Wno-error -Wno-unused-variable -Wno-unused-but-set-variable -DCONFIG_ANDROID_BINDER_DEVICES=\"binder,hwbinder,vndbinder\" -DCONFIG_ANDROID_BINDER_DEVICES_HACKED=\"binder,hwbinder,vndbinder\"
           EOF
 
           echo 'MODULE_DESCRIPTION("Android Binder Driver");' >> binder.c
