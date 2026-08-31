@@ -242,6 +242,16 @@ jobs:
           echo "🔍 最終狀態確認："
           ls -la /dev/*binder* || true
           docker ps -f name=redroid
+
+      - name: test android container
+        run: |
+          docker logs -f redroid
+
+          # 2. 透過 ADB 連線至容器
+          adb connect 127.0.0.1:5555
+
+          # 3. 進入 Android Shell 檢查系統服務（例如 boot_completed 屬性）
+          adb -s 127.0.0.1:5555 shell getprop sys.boot_completed
           
       - name: Start Redroid Container
         run: |
