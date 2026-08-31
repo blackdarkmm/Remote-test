@@ -243,7 +243,7 @@ jobs:
           ls -la /dev/*binder* || true
           docker ps -f name=redroid
 
-      - name: Start Redroid & Check Health
+      - name: Start Redroid & Force Detach
         run: |
           echo "🚀 啟動 Redroid 容器..."
           docker rm -f redroid >/dev/null 2>&1 || true
@@ -255,38 +255,32 @@ jobs:
             fi
           done
 
-          # 背景執行並徹底重定向 I/O 避免管道掛起
-          docker run -d \
+          # 核心修正：使用 nohup 與獨立管道重定向，完全解綁 Runner 的 I/O
+          nohup docker run -d \
             --name=redroid \
             --privileged \
             $DOCKER_MOUNT_ARGS \
             -v /data/redroid:/data \
             -p 5555:5555 \
             redroid/redroid:11.0.0-latest \
-            androidboot.use_memfd=1 >/dev/null 2>&1
+            androidboot.use_memfd=1 </dev/null >/dev/null 2>&1 &
 
-          echo "⏳ 靜置 5 秒..."
-          sleep 5
+          echo "⏳ 靜置 3 秒讓背景進程脫離..."
+          sleep 3
 
-          echo "📋 檢查容器運行狀態..."
-          IS_RUNNING=$(docker inspect -f '{{.State.Running}}' redroid 2>/dev/null || echo "false")
-
-          if [ "$IS_RUNNING" != "true" ]; then
-            echo "❌ Redroid 容器未能持續運行！輸出最新崩潰日誌："
-            docker logs --tail 100 redroid || true
+          echo "📋 檢查容器狀態："
+          if docker ps --format '{{.Names}}' | grep -q "^redroid$"; then
+            echo "✅ Redroid 容器已在背景穩定運行 (Status: Up)"
+          else
+            echo "❌ Redroid 啟動後立即崩潰 (Status: Exited)！日誌如下："
+            docker logs --tail 50 redroid 2>&1 || true
             exit 1
           fi
 
-          echo "✅ Redroid 容器持續運行中 (Running: true)"
+          echo "🔗 背景嘗試建立 ADB 連線..."
+          nohup adb connect 127.0.0.1:5555 </dev/null >/dev/null 2>&1 &
 
-          echo "🔗 連線至 ADB (限制時間並導向背景)..."
-          adb kill-server >/dev/null 2>&1 || true
-          timeout 5s adb connect 127.0.0.1:5555 >/dev/null 2>&1 || true
-
-          echo "📋 目前 Docker 容器狀態："
-          docker ps -f name=redroid
-
-          echo "✅ 啟動成功，進入下一個流程！"
+          echo "✅ 流程順利完成，立即進入下一步！"
           
       - name: Wait for Android Boot
         run: |
