@@ -140,16 +140,15 @@ jobs:
           sed -i 's/task_work_add(\([^,]*\), \([^,]*\), false)/task_work_add(\1, \2, TWA_RESUME)/g' binder.c
 
           # --- 修正 binder_alloc.h & binder_alloc.c ---
-          # 1. 同步移除 binder_alloc.h 內的 spinlock_t 宣告
+          # 1. 移除函數聲明與定義中的 spinlock_t 參數
           sed -i 's/spinlock_t \*lock,//g' binder_alloc.h
           sed -i 's/struct spinlock \*lock,//g' binder_alloc.h
-
-          # 2. 移除 binder_alloc.c 內的 spinlock_t 參數定義
           sed -i 's/spinlock_t \*lock,//g' binder_alloc.c
           sed -i 's/struct spinlock \*lock,//g' binder_alloc.c
 
-          # 3. 註解掉 binder_alloc_free_page 中已失效的 spin_unlock(lock)
+          # 2. 移除 binder_alloc_free_page 中內部操作 spinlock 的舊代碼
           sed -i 's/spin_unlock(lock);/\/* spin_unlock(lock); *\//g' binder_alloc.c
+          sed -i 's/spin_lock(lock);/\/* spin_lock(lock); *\//g' binder_alloc.c
 
           echo "🛠️ 4. 準備 Kbuild 配置..."
           cat << 'EOF' > Kbuild
