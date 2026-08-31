@@ -88,7 +88,6 @@ jobs:
           #include <linux/shrinker.h>
           #include <linux/miscdevice.h>
 
-          // 徹底禁用 binderfs
           #ifdef CONFIG_ANDROID_BINDERFS
           #undef CONFIG_ANDROID_BINDERFS
           #endif
@@ -101,13 +100,11 @@ jobs:
           #define CONFIG_ANDROID_BINDER_DEVICES_HACKED CONFIG_ANDROID_BINDER_DEVICES
           #endif
 
-          // 取消 pr_fmt 重定義警告
           #ifdef pr_fmt
           #undef pr_fmt
           #endif
           #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-          // 1. 安全與追蹤 API 覆寫
           #define security_binder_transfer_binder(from, to) 0
           #define security_binder_transfer_file(from, to, file) 0
           #define security_binder_transaction(from, to) 0
@@ -119,23 +116,19 @@ jobs:
           #define freezer_do_not_count() do {} while(0)
           #define freezer_count() do {} while(0)
 
-          // 2. 替代已移除的 __close_fd_get_file
           static inline void binder_compat_close_fd(int fd, struct file **f) {
               *f = fget(fd);
               if (*f) close_fd(fd);
           }
           #define __close_fd_get_file(fd, f) binder_compat_close_fd(fd, f)
 
-          // 3. mmap_sem 轉換為 mmap_lock
           #define down_read(sem) mmap_read_lock(mm)
           #define up_read(sem) mmap_read_unlock(mm)
           #define down_read_trylock(sem) mmap_read_trylock(mm)
 
-          // 4. list_lru API 相容封裝
           #define list_lru_add(lru, item) list_lru_add(lru, item, 0, NULL)
           #define list_lru_del(lru, item) list_lru_del(lru, item, 0, NULL)
 
-          // 5. 新版 Kernel 符號修復
           #define zap_page_range(vma, start, len) zap_page_range_single(vma, start, len, NULL)
           #define register_shrinker(...) 0
           #define unregister_shrinker(s) do {} while(0)
@@ -162,7 +155,10 @@ jobs:
           sed -i 's/spin_unlock(lock);/\/* spin_unlock(lock); *\//g' binder_alloc.c
           sed -i 's/spin_lock(lock);/\/* spin_lock(lock); *\//g' binder_alloc.c
 
-          echo "🛠️ 4. 準備 Kbuild 配置 (修正巨集傳遞)..."
+          # 確保預設參數指向包含 3 個裝置的字串
+          sed -i 's/char \*binder_devices_param =.*/char \*binder_devices_param = "binder,hwbinder,vndbinder";/g' binder.c
+
+          echo "🛠️ 4. 準備 Kbuild 配置..."
           cat << 'EOF' > Kbuild
           obj-m += binder_linux.o
           binder_linux-y := binder.o binder_alloc.o
@@ -176,9 +172,8 @@ jobs:
 
           echo "🚀 6. 載入 binder_linux 核心模組..."
           sudo rmmod binder_linux 2>/dev/null || true
-          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder" || true
+          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder" || sudo insmod binder_linux.ko
 
-          # 輸出 dmesg 便於排查 insmod 細節
           echo "📋 Kernel Logs (Binder):"
           sudo dmesg | grep -i binder | tail -n 20 || true
 
@@ -203,7 +198,6 @@ jobs:
           echo "✅ 7. 啟動 Redroid 容器..."
           docker rm -f redroid 2>/dev/null || true
 
-          # 動態拼湊可用的裝置掛載參數
           DOCKER_MOUNT_ARGS=""
           for dev in binder hwbinder vndbinder; do
             if [ -c "/dev/$dev" ]; then
