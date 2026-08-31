@@ -86,10 +86,11 @@ jobs:
           #include <linux/task_work.h>
           #include <linux/list_lru.h>
           #include <linux/shrinker.h>
+          #include <linux/miscdevice.h>
 
-          // 強制開啟 binderfs 邏輯區塊以露出 binder_init_device，但走自訂流程
-          #ifndef CONFIG_ANDROID_BINDERFS
-          #define CONFIG_ANDROID_BINDERFS 1
+          // 徹底禁用 binderfs，強制走傳統 miscdevice 模式
+          #ifdef CONFIG_ANDROID_BINDERFS
+          #undef CONFIG_ANDROID_BINDERFS
           #endif
 
           #ifndef CONFIG_ANDROID_BINDER_DEVICES
@@ -134,11 +135,14 @@ jobs:
           #define list_lru_add(lru, item) list_lru_add(lru, item, 0, NULL)
           #define list_lru_del(lru, item) list_lru_del(lru, item, 0, NULL)
 
-          // 5. 新版 Kernel 符號修復與 Stub 補全
+          // 5. 新版 Kernel 符號修復與 binderfs Stub 補全
           #define zap_page_range(vma, start, len) zap_page_range_single(vma, start, len, NULL)
           #define register_shrinker(...) 0
           #define unregister_shrinker(s) do {} while(0)
+
           static inline void binderfs_exit(void) {}
+          static inline int init_binderfs(void) { return 0; }
+          static inline bool is_binderfs_device(const struct inode *inode) { return false; }
 
           #endif
           EOF
@@ -160,9 +164,6 @@ jobs:
           sed -i 's/spin_unlock(lock);/\/* spin_unlock(lock); *\//g' binder_alloc.c
           sed -i 's/spin_lock(lock);/\/* spin_lock(lock); *\//g' binder_alloc.c
 
-          # 將 init_binderfs 替代為直接初始化字元設備
-          sed -i 's/int ret = init_binderfs();/binder_init_device("binder"); binder_init_device("hwbinder"); binder_init_device("vndbinder"); return 0;/g' binder.c
-
           echo "🛠️ 4. 準備 Kbuild 配置..."
           cat << 'EOF' > Kbuild
           obj-m += binder_linux.o
@@ -177,7 +178,7 @@ jobs:
 
           echo "🚀 6. 載入 binder_linux 核心模組..."
           sudo rmmod binder_linux 2>/dev/null || true
-          sudo insmod binder_linux.ko
+          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder"
 
           # 等待 udev 自動建立節點並變更權限
           sleep 1
