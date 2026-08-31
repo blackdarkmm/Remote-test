@@ -243,10 +243,10 @@ jobs:
           ls -la /dev/*binder* || true
           docker ps -f name=redroid
 
-      - name: Start Redroid
+      - name: Start Redroid & Check Health
         run: |
           echo "🚀 啟動 Redroid 容器..."
-          docker rm -f redroid 2>/dev/null || true
+          docker rm -f redroid >/dev/null 2>&1 || true
 
           DOCKER_MOUNT_ARGS=""
           for dev in binder hwbinder vndbinder; do
@@ -255,6 +255,7 @@ jobs:
             fi
           done
 
+          # 背景執行並徹底重定向 I/O 避免管道掛起
           docker run -d \
             --name=redroid \
             --privileged \
@@ -262,24 +263,30 @@ jobs:
             -v /data/redroid:/data \
             -p 5555:5555 \
             redroid/redroid:11.0.0-latest \
-            androidboot.use_memfd=1
+            androidboot.use_memfd=1 >/dev/null 2>&1
 
-          echo "⏳ 容器已在背景啟動，等待 5 秒..."
+          echo "⏳ 靜置 5 秒..."
           sleep 5
 
-          echo "📋 1. 查看所有容器狀態 (含已退出)："
-          docker ps -a
+          echo "📋 檢查容器運行狀態..."
+          IS_RUNNING=$(docker inspect -f '{{.State.Running}}' redroid 2>/dev/null || echo "false")
 
-          echo "📄 2. 輸出 Redroid 崩潰日誌 (若已退出即可看到原因)："
-          docker logs --tail 50 redroid || true
+          if [ "$IS_RUNNING" != "true" ]; then
+            echo "❌ Redroid 容器未能持續運行！輸出最新崩潰日誌："
+            docker logs --tail 100 redroid || true
+            exit 1
+          fi
 
-          echo "🔗 嘗試連線 ADB (帶上 5 秒硬性超時限制)..."
-          timeout 5s adb connect 127.0.0.1:5555 || true
+          echo "✅ Redroid 容器持續運行中 (Running: true)"
 
-          echo "📋 目前 5555 端口狀態："
-          sudo netstat -tlpn | grep 5555 || true
+          echo "🔗 連線至 ADB (限制時間並導向背景)..."
+          adb kill-server >/dev/null 2>&1 || true
+          timeout 5s adb connect 127.0.0.1:5555 >/dev/null 2>&1 || true
 
-          echo "✅ 診斷完畢，進入下一步！"
+          echo "📋 目前 Docker 容器狀態："
+          docker ps -f name=redroid
+
+          echo "✅ 啟動成功，進入下一個流程！"
           
       - name: Wait for Android Boot
         run: |
