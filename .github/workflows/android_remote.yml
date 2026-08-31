@@ -126,9 +126,9 @@ jobs:
           #define list_lru_add(lru, item) list_lru_add(lru, item, 0, NULL)
           #define list_lru_del(lru, item) list_lru_del(lru, item, 0, NULL)
 
-          // 5. 新版 Kernel 符號修復 (zap_page_range, shrinker, binderfs)
+          // 5. 新版 Kernel 符號修復
           #define zap_page_range(vma, start, len) zap_page_range_single(vma, start, len, NULL)
-          #define register_shrinker(s, fmt, ...) 0
+          #define register_shrinker(...) 0
           #define unregister_shrinker(s) do {} while(0)
           static inline void binderfs_exit(void) {}
 
@@ -161,8 +161,7 @@ jobs:
           cat << 'EOF' > Kbuild
           obj-m += binder_linux.o
           binder_linux-y := binder.o binder_alloc.o
-          ccflags-y := -I$(src) -Wno-implicit-function-declaration -Wno-error
-          MODULE_DESCRIPTION = "Binder Linux Module"
+          ccflags-y := -I$(src) -Wno-implicit-function-declaration -Wno-error -Wno-unused-variable -Wno-unused-but-set-variable
           EOF
 
           # 在 binder.c 補上 MODULE_DESCRIPTION 消除告警
