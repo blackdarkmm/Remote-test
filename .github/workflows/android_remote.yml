@@ -70,6 +70,9 @@ jobs:
           # 強制還原程式碼至乾淨狀態
           git checkout binder.c binder_alloc.c binder_alloc.h
 
+          # 清理先前殘留的錯誤目錄
+          sudo rm -rf /dev/binder /dev/hwbinder /dev/vndbinder /dev/binderfs
+
           echo "🛠️ 2. 建立相容性標頭檔 binder_compat.h..."
           cat << 'EOF' > binder_compat.h
           #ifndef _BINDER_COMPAT_H
@@ -83,6 +86,12 @@ jobs:
           #include <linux/task_work.h>
           #include <linux/list_lru.h>
           #include <linux/shrinker.h>
+          #include <linux/miscdevice.h>
+
+          // 禁用 binderfs，強制回退至傳統 misc device 模式
+          #ifdef CONFIG_ANDROID_BINDERFS
+          #undef CONFIG_ANDROID_BINDERFS
+          #endif
 
           #ifndef CONFIG_ANDROID_BINDER_DEVICES
           #define CONFIG_ANDROID_BINDER_DEVICES "binder,hwbinder,vndbinder"
@@ -130,7 +139,6 @@ jobs:
           #define zap_page_range(vma, start, len) zap_page_range_single(vma, start, len, NULL)
           #define register_shrinker(...) 0
           #define unregister_shrinker(s) do {} while(0)
-          static inline void binderfs_exit(void) {}
 
           #endif
           EOF
@@ -165,32 +173,11 @@ jobs:
           make -C /lib/modules/$(uname -r)/build M=$PWD modules
 
           echo "🚀 6. 載入 binder_linux 核心模組..."
-          # 卸載舊模組（若存在）
           sudo rmmod binder_linux 2>/dev/null || true
-          sudo insmod binder_linux.ko
+          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder"
 
-          # 若未自動建立裝置節點，則嘗試掛載 binderfs
-          if [ ! -e /dev/binder ]; then
-            echo "⚠️ 未檢測到 /dev/binder，嘗試掛載 binderfs..."
-            sudo mkdir -p /dev/binderfs
-            sudo mount -t binder binder /dev/binderfs || true
-            if [ -e /dev/binderfs/binder ]; then
-              sudo ln -sf /dev/binderfs/binder /dev/binder
-              sudo ln -sf /dev/binderfs/hwbinder /dev/hwbinder
-              sudo ln -sf /dev/binderfs/vndbinder /dev/vndbinder
-            fi
-          fi
-
-          # 檢查 dmesg 輸出以利除錯
-          sudo dmesg | tail -n 20
-
-          # 設定權限（加上條件判定）
-          if ls /dev/binder* 1> /dev/null 2>&1; then
-            sudo chmod 666 /dev/binder* /dev/binderfs/* 2>/dev/null || true
-          else
-            echo "❌ 錯誤：無法找到任何 /dev/binder 裝置節點！"
-            exit 1
-          fi
+          # 檢查權限與字元設備是否存在
+          sudo chmod 666 /dev/binder /dev/hwbinder /dev/vndbinder 2>/dev/null || true
 
           echo "✅ 7. 啟動 Redroid 容器..."
           docker rm -f redroid 2>/dev/null || true
@@ -207,7 +194,7 @@ jobs:
             androidboot.use_memfd=1
 
           echo "🔍 狀態確認："
-          ls -l /dev/binder*
+          ls -l /dev/*binder*
           docker ps -f name=redroid
           
       - name: Start Redroid Container
