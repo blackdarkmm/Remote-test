@@ -243,7 +243,7 @@ jobs:
           ls -la /dev/*binder* || true
           docker ps -f name=redroid
 
-      - name: Start Redroid and Proceed
+      - name: Start Redroid
         run: |
           echo "🚀 啟動 Redroid 容器..."
           docker rm -f redroid 2>/dev/null || true
@@ -255,7 +255,7 @@ jobs:
             fi
           done
 
-          docker run -itd \
+          docker run -d \
             --name=redroid \
             --privileged \
             $DOCKER_MOUNT_ARGS \
@@ -264,14 +264,17 @@ jobs:
             redroid/redroid:11.0.0-latest \
             androidboot.use_memfd=1
 
-          echo "⏳ 等待 15 秒讓容器基礎服務初始化..."
-          sleep 15
+          echo "⏳ 容器已在背景啟動，等待 5 秒..."
+          sleep 5
 
-          echo "🔗 嘗試 ADB 連線..."
-          adb connect 127.0.0.1:5555 || true
-          adb devices
+          echo "🔗 嘗試連線 ADB (帶上 5 秒硬性超時限制)..."
+          timeout 5s adb connect 127.0.0.1:5555 || true
 
-          echo "✅ 容器部署完畢，直接進入下一個步驟！"
+          echo "📋 目前 Docker 容器與 5555 端口狀態："
+          docker ps
+          sudo netstat -tlpn | grep 5555 || true
+
+          echo "✅ 部署完成，立即進入下一步！"
 
       - name: Wait for Android Boot
         run: |
