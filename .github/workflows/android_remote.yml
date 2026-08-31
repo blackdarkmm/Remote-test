@@ -68,7 +68,7 @@ jobs:
           cd redroid-modules/binder
 
           # 強制還原程式碼至乾淨狀態
-          git checkout binder.c binder_alloc.c
+          git checkout binder.c binder_alloc.c binder_alloc.h
 
           echo "🛠️ 2. 建立相容性標頭檔 binder_compat.h..."
           cat << 'EOF' > binder_compat.h
@@ -90,6 +90,12 @@ jobs:
           #ifndef CONFIG_ANDROID_BINDER_DEVICES_HACKED
           #define CONFIG_ANDROID_BINDER_DEVICES_HACKED CONFIG_ANDROID_BINDER_DEVICES
           #endif
+
+          // 取消 pr_fmt 重定義警告
+          #ifdef pr_fmt
+          #undef pr_fmt
+          #endif
+          #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
           // 1. 安全與追蹤 API 覆寫
           #define security_binder_transfer_binder(from, to) 0
@@ -133,16 +139,23 @@ jobs:
           sed -i 's/task_work_add(\([^,]*\), \([^,]*\), true)/task_work_add(\1, \2, TWA_RESUME)/g' binder.c
           sed -i 's/task_work_add(\([^,]*\), \([^,]*\), false)/task_work_add(\1, \2, TWA_RESUME)/g' binder.c
 
-          # --- 修正 binder_alloc.c ---
-          # 精準移除 binder_alloc_free_page 函數簽名與聲明中的 spinlock_t 參數
+          # --- 修正 binder_alloc.h & binder_alloc.c ---
+          # 1. 同步移除 binder_alloc.h 內的 spinlock_t 宣告
+          sed -i 's/spinlock_t \*lock,//g' binder_alloc.h
+          sed -i 's/struct spinlock \*lock,//g' binder_alloc.h
+
+          # 2. 移除 binder_alloc.c 內的 spinlock_t 參數定義
           sed -i 's/spinlock_t \*lock,//g' binder_alloc.c
           sed -i 's/struct spinlock \*lock,//g' binder_alloc.c
+
+          # 3. 註解掉 binder_alloc_free_page 中已失效的 spin_unlock(lock)
+          sed -i 's/spin_unlock(lock);/\/* spin_unlock(lock); *\//g' binder_alloc.c
 
           echo "🛠️ 4. 準備 Kbuild 配置..."
           cat << 'EOF' > Kbuild
           obj-m += binder_linux.o
           binder_linux-y := binder.o binder_alloc.o
-          ccflags-y := -I$(src) -Wno-implicit-function-declaration -Wno-error -Wno-macro-redefined
+          ccflags-y := -I$(src) -Wno-implicit-function-declaration -Wno-error
           EOF
 
           echo "🛠️ 5. 開始編譯..."
