@@ -135,14 +135,12 @@ jobs:
           #define list_lru_add(lru, item) list_lru_add(lru, item, 0, NULL)
           #define list_lru_del(lru, item) list_lru_del(lru, item, 0, NULL)
 
-          // 5. 新版 Kernel 符號修復與 binderfs Stub 補全
+          // 5. 新版 Kernel 符號修復與特定 Stub
           #define zap_page_range(vma, start, len) zap_page_range_single(vma, start, len, NULL)
           #define register_shrinker(...) 0
           #define unregister_shrinker(s) do {} while(0)
 
           static inline void binderfs_exit(void) {}
-          static inline int init_binderfs(void) { return 0; }
-          static inline bool is_binderfs_device(const struct inode *inode) { return false; }
 
           #endif
           EOF
