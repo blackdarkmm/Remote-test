@@ -157,8 +157,8 @@ jobs:
           sed -i 's/spin_lock(lock);/\/* spin_lock(lock); *\//g' binder_alloc.c
 
           echo "🛠️ 4. 硬編碼修復 binder.c 內部裝置註冊 logic..."
-          # 補上強制的 miscdevice 註冊程式碼塊
-          cat << 'EOF' > force_binder_devices.c
+          # 建立強制註冊函式，直接插在 binder.c 的第 2 行（確保位在所有呼叫點上方）
+          cat << 'EOF' > force_binder_devices.h
           static int init_forced_binder_devices(void) {
               int ret;
               static struct miscdevice binder_miscdevs[] = {
@@ -179,9 +179,12 @@ jobs:
           }
           EOF
 
-          # 將強制的 misc 註冊邏輯貼在 binder.c 末尾，並在 binder_init 中呼叫它
-          cat force_binder_devices.c >> binder.c
-          sed -i '/return 0;/i \    init_forced_binder_devices();' binder.c
+          # 將函式寫在 binder_fops 宣告之後、binder_init 之前的適當位置，並補上前向宣告
+          sed -i '2i static int init_forced_binder_devices(void);' binder.c
+          cat force_binder_devices.h >> binder.c
+          sed -i '/binder_init(void)/,/^{/ {
+              /{/a \    init_forced_binder_devices();
+          }' binder.c
 
           echo "🛠️ 5. 準備 Kbuild 配置..."
           cat << 'EOF' > Kbuild
