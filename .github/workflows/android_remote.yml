@@ -243,52 +243,35 @@ jobs:
           ls -la /dev/*binder* || true
           docker ps -f name=redroid
 
-      - name: Verify Redroid Boot Status
+      - name: Start Redroid and Proceed
         run: |
-          echo "📋 查看容器最新日誌..."
-          docker logs --tail 30 redroid
+          echo "🚀 啟動 Redroid 容器..."
+          docker rm -f redroid 2>/dev/null || true
 
-          echo "⏳ 等待 Android 系統開機 (透過 docker exec 直接檢查)..."
-          BOOT_COMPLETE=""
-          FOR_COUNTER=0
-          MAX_RETRIES=30
-
-          until [ "$BOOT_COMPLETE" = "1" ] || [ $FOR_COUNTER -eq $MAX_RETRIES ]; do
-            # 直接在容器內執行 getprop，避免 ADB 連線超時 Hang 住
-            BOOT_COMPLETE=$(docker exec redroid getprop sys.boot_completed 2>/dev/null | tr -d '\r')
-            if [ "$BOOT_COMPLETE" = "1" ]; then
-              echo "🎉 Redroid 系統已成功開機！(sys.boot_completed = 1)"
-              break
+          DOCKER_MOUNT_ARGS=""
+          for dev in binder hwbinder vndbinder; do
+            if [ -c "/dev/$dev" ]; then
+              DOCKER_MOUNT_ARGS="$DOCKER_MOUNT_ARGS -v /dev/$dev:/dev/$dev"
             fi
-            echo "⌛ Android 初始化中... ($((FOR_COUNTER+1))/$MAX_RETRIES)"
-            sleep 3
-            FOR_COUNTER=$((FOR_COUNTER+1))
           done
 
-          if [ "$BOOT_COMPLETE" != "1" ]; then
-            echo "❌ 開機逾時，列出容器最後 100 行日誌："
-            docker logs --tail 100 redroid
-            exit 1
-          fi
-
-          echo "🔗 連線至宿主機 ADB (帶上超時保護)..."
-          timeout 10s adb connect 127.0.0.1:5555 || true
-          timeout 10s adb devices
-          
-      - name: Start Redroid Container
-        run: |
-          # 啟動 Redroid (Android 11) 容器
-          # - android_fps=15: 降低幀率減少 CPU 負擔
-          # - redroid.gpu.mode=guest: 使用 CPU 軟體渲染 (OpenGL ES 3.0)
-          docker run -d \
-            --name redroid \
+          docker run -itd \
+            --name=redroid \
             --privileged \
-            --pull always \
-            -p 5555:5555 \
+            $DOCKER_MOUNT_ARGS \
             -v /data/redroid:/data \
+            -p 5555:5555 \
             redroid/redroid:11.0.0-latest \
-            android_fps=15 \
-            redroid.gpu.mode=guest
+            androidboot.use_memfd=1
+
+          echo "⏳ 等待 15 秒讓容器基礎服務初始化..."
+          sleep 15
+
+          echo "🔗 嘗試 ADB 連線..."
+          adb connect 127.0.0.1:5555 || true
+          adb devices
+
+          echo "✅ 容器部署完畢，直接進入下一個步驟！"
 
       - name: Wait for Android Boot
         run: |
