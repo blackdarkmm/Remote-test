@@ -136,24 +136,19 @@ jobs:
           EOF
 
           echo "🛠️ 3. 引入相容檔與修復 API 語法..."
-          # 在最開頭引入 compat 標頭檔
           sed -i '1i#include "binder_compat.h"' binder.c
           sed -i '1i#include "binder_compat.h"' binder_alloc.c
 
-          # --- 修正 binder.c ---
           sed -i 's/vma->vm_flags |= VM_DONTCOPY | VM_MIXEDMAP;/vm_flags_set(vma, VM_DONTCOPY | VM_MIXEDMAP);/g' binder.c
           sed -i 's/vma->vm_flags &= ~VM_MAYWRITE;/vm_flags_clear(vma, VM_MAYWRITE);/g' binder.c
           sed -i 's/task_work_add(\([^,]*\), \([^,]*\), true)/task_work_add(\1, \2, TWA_RESUME)/g' binder.c
           sed -i 's/task_work_add(\([^,]*\), \([^,]*\), false)/task_work_add(\1, \2, TWA_RESUME)/g' binder.c
 
-          # --- 修正 binder_alloc.h & binder_alloc.c ---
-          # 1. 移除函數聲明與定義中的 spinlock_t 參數
           sed -i 's/spinlock_t \*lock,//g' binder_alloc.h
           sed -i 's/struct spinlock \*lock,//g' binder_alloc.h
           sed -i 's/spinlock_t \*lock,//g' binder_alloc.c
           sed -i 's/struct spinlock \*lock,//g' binder_alloc.c
 
-          # 2. 移除 binder_alloc_free_page 中內部操作 spinlock 的舊代碼
           sed -i 's/spin_unlock(lock);/\/* spin_unlock(lock); *\//g' binder_alloc.c
           sed -i 's/spin_lock(lock);/\/* spin_lock(lock); *\//g' binder_alloc.c
 
@@ -164,15 +159,38 @@ jobs:
           ccflags-y := -I$(src) -Wno-implicit-function-declaration -Wno-error -Wno-unused-variable -Wno-unused-but-set-variable
           EOF
 
-          # 在 binder.c 補上 MODULE_DESCRIPTION 消除告警
           echo 'MODULE_DESCRIPTION("Android Binder Driver");' >> binder.c
 
           echo "🛠️ 5. 開始編譯..."
           make -C /lib/modules/$(uname -r)/build M=$PWD modules
 
           echo "🚀 6. 載入 binder_linux 核心模組..."
-          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder"
-          sudo chmod 666 /dev/binder*
+          # 卸載舊模組（若存在）
+          sudo rmmod binder_linux 2>/dev/null || true
+          sudo insmod binder_linux.ko
+
+          # 若未自動建立裝置節點，則嘗試掛載 binderfs
+          if [ ! -e /dev/binder ]; then
+            echo "⚠️ 未檢測到 /dev/binder，嘗試掛載 binderfs..."
+            sudo mkdir -p /dev/binderfs
+            sudo mount -t binder binder /dev/binderfs || true
+            if [ -e /dev/binderfs/binder ]; then
+              sudo ln -sf /dev/binderfs/binder /dev/binder
+              sudo ln -sf /dev/binderfs/hwbinder /dev/hwbinder
+              sudo ln -sf /dev/binderfs/vndbinder /dev/vndbinder
+            fi
+          fi
+
+          # 檢查 dmesg 輸出以利除錯
+          sudo dmesg | tail -n 20
+
+          # 設定權限（加上條件判定）
+          if ls /dev/binder* 1> /dev/null 2>&1; then
+            sudo chmod 666 /dev/binder* /dev/binderfs/* 2>/dev/null || true
+          else
+            echo "❌ 錯誤：無法找到任何 /dev/binder 裝置節點！"
+            exit 1
+          fi
 
           echo "✅ 7. 啟動 Redroid 容器..."
           docker rm -f redroid 2>/dev/null || true
