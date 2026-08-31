@@ -245,36 +245,35 @@ jobs:
 
       - name: Verify Redroid Boot Status
         run: |
-          echo "📋 查看容器最新日誌（不持續監聽）..."
-          docker logs --tail 50 redroid
+          echo "📋 查看容器最新日誌..."
+          docker logs --tail 30 redroid
 
-          echo "⏳ 等待 ADB 服務啟動..."
-          sleep 10
-
-          echo "🔗 連線至 Redroid ADB..."
-          adb connect 127.0.0.1:5555 || true
-
-          echo "⏳ 等待 Android 系統完全開機 (boot_completed)..."
+          echo "⏳ 等待 Android 系統開機 (透過 docker exec 直接檢查)..."
           BOOT_COMPLETE=""
           FOR_COUNTER=0
           MAX_RETRIES=30
 
           until [ "$BOOT_COMPLETE" = "1" ] || [ $FOR_COUNTER -eq $MAX_RETRIES ]; do
-            BOOT_COMPLETE=$(adb -s 127.0.0.1:5555 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+            # 直接在容器內執行 getprop，避免 ADB 連線超時 Hang 住
+            BOOT_COMPLETE=$(docker exec redroid getprop sys.boot_completed 2>/dev/null | tr -d '\r')
             if [ "$BOOT_COMPLETE" = "1" ]; then
-              echo "🎉 Redroid 開機完成！(sys.boot_completed = 1)"
+              echo "🎉 Redroid 系統已成功開機！(sys.boot_completed = 1)"
               break
             fi
-            echo "⌛ Android 啟動中... ($((FOR_COUNTER+1))/$MAX_RETRIES)"
+            echo "⌛ Android 初始化中... ($((FOR_COUNTER+1))/$MAX_RETRIES)"
             sleep 3
             FOR_COUNTER=$((FOR_COUNTER+1))
           done
 
           if [ "$BOOT_COMPLETE" != "1" ]; then
-            echo "❌ 開機逾時，列出最後 100 行容器日誌以供排錯："
+            echo "❌ 開機逾時，列出容器最後 100 行日誌："
             docker logs --tail 100 redroid
             exit 1
           fi
+
+          echo "🔗 連線至宿主機 ADB (帶上超時保護)..."
+          timeout 10s adb connect 127.0.0.1:5555 || true
+          timeout 10s adb devices
           
       - name: Start Redroid Container
         run: |
