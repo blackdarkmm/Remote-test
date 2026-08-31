@@ -157,7 +157,6 @@ jobs:
           sed -i 's/spin_lock(lock);/\/* spin_lock(lock); *\//g' binder_alloc.c
 
           echo "🛠️ 4. 硬編碼修復 binder.c 內部裝置註冊 logic..."
-          # 建立強制註冊函式，直接插在 binder.c 的第 2 行（確保位在所有呼叫點上方）
           cat << 'EOF' > force_binder_devices.h
           static int init_forced_binder_devices(void) {
               int ret;
@@ -179,7 +178,6 @@ jobs:
           }
           EOF
 
-          # 將函式寫在 binder_fops 宣告之後、binder_init 之前的適當位置，並補上前向宣告
           sed -i '2i static int init_forced_binder_devices(void);' binder.c
           cat force_binder_devices.h >> binder.c
           sed -i '/binder_init(void)/,/^{/ {
@@ -208,16 +206,15 @@ jobs:
           echo "📋 /proc/misc Devices:"
           grep binder /proc/misc || echo "⚠️ /proc/misc 中仍未找到 binder！"
 
-          # 自動建立字元設備節點 (Character Devices)
+          # 確認與自動修正裝置節點權限
           for dev in binder hwbinder vndbinder; do
-            if [ -d "/dev/$dev" ]; then
-              sudo rm -rf "/dev/$dev"
-            fi
             minor=$(grep -w "$dev" /proc/misc | awk '{print $1}')
             if [ -n "$minor" ]; then
+              # 強制刪除已有節點/目錄，確保 mknod 可乾淨重建
+              sudo rm -rf "/dev/$dev"
               sudo mknod "/dev/$dev" c 10 "$minor"
               sudo chmod 666 "/dev/$dev"
-              echo "✅ 成功建立裝置節點: /dev/$dev (c 10 $minor)"
+              echo "✅ 成功確認並重置裝置節點: /dev/$dev (c 10 $minor)"
             else
               echo "❌ 無法從 /proc/misc 獲取 $dev 的 minor number"
             fi
