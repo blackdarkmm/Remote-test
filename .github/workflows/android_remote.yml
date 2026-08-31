@@ -87,6 +87,7 @@ jobs:
           #include <linux/list_lru.h>
           #include <linux/shrinker.h>
           #include <linux/miscdevice.h>
+          #include <linux/slab.h>
 
           #ifdef CONFIG_ANDROID_BINDERFS
           #undef CONFIG_ANDROID_BINDERFS
@@ -155,10 +156,34 @@ jobs:
           sed -i 's/spin_unlock(lock);/\/* spin_unlock(lock); *\//g' binder_alloc.c
           sed -i 's/spin_lock(lock);/\/* spin_lock(lock); *\//g' binder_alloc.c
 
-          # 確保預設參數指向包含 3 個裝置的字串
-          sed -i 's/char \*binder_devices_param =.*/char \*binder_devices_param = "binder,hwbinder,vndbinder";/g' binder.c
+          echo "🛠️ 4. 硬編碼修復 binder.c 內部裝置註冊 logic..."
+          # 補上強制的 miscdevice 註冊程式碼塊
+          cat << 'EOF' > force_binder_devices.c
+          static int init_forced_binder_devices(void) {
+              int ret;
+              static struct miscdevice binder_miscdevs[] = {
+                  { .minor = MISC_DYNAMIC_MINOR, .name = "binder", .fops = &binder_fops },
+                  { .minor = MISC_DYNAMIC_MINOR, .name = "hwbinder", .fops = &binder_fops },
+                  { .minor = MISC_DYNAMIC_MINOR, .name = "vndbinder", .fops = &binder_fops },
+              };
+              int i;
+              for (i = 0; i < ARRAY_SIZE(binder_miscdevs); i++) {
+                  ret = misc_register(&binder_miscdevs[i]);
+                  if (ret) {
+                      pr_err("failed to register misc device %s\n", binder_miscdevs[i].name);
+                  } else {
+                      pr_info("successfully registered misc device %s\n", binder_miscdevs[i].name);
+                  }
+              }
+              return 0;
+          }
+          EOF
 
-          echo "🛠️ 4. 準備 Kbuild 配置..."
+          # 將強制的 misc 註冊邏輯貼在 binder.c 末尾，並在 binder_init 中呼叫它
+          cat force_binder_devices.c >> binder.c
+          sed -i '/return 0;/i \    init_forced_binder_devices();' binder.c
+
+          echo "🛠️ 5. 準備 Kbuild 配置..."
           cat << 'EOF' > Kbuild
           obj-m += binder_linux.o
           binder_linux-y := binder.o binder_alloc.o
@@ -167,12 +192,12 @@ jobs:
 
           echo 'MODULE_DESCRIPTION("Android Binder Driver");' >> binder.c
 
-          echo "🛠️ 5. 開始編譯..."
+          echo "🛠️ 6. 開始編譯..."
           make -C /lib/modules/$(uname -r)/build M=$PWD modules
 
-          echo "🚀 6. 載入 binder_linux 核心模組..."
+          echo "🚀 7. 載入 binder_linux 核心模組..."
           sudo rmmod binder_linux 2>/dev/null || true
-          sudo insmod binder_linux.ko devices="binder,hwbinder,vndbinder" || sudo insmod binder_linux.ko
+          sudo insmod binder_linux.ko
 
           echo "📋 Kernel Logs (Binder):"
           sudo dmesg | grep -i binder | tail -n 20 || true
@@ -195,7 +220,7 @@ jobs:
             fi
           done
 
-          echo "✅ 7. 啟動 Redroid 容器..."
+          echo "✅ 8. 啟動 Redroid 容器..."
           docker rm -f redroid 2>/dev/null || true
 
           DOCKER_MOUNT_ARGS=""
